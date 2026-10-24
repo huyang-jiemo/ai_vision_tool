@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules
 
 APP_NAME = "AI-Vision-Tool"
 ROOT = SPECPATH  # PyInstaller 执行 spec 时不提供 __file__，用 SPECPATH（spec 所在目录）
@@ -18,37 +18,30 @@ a = Analysis(
     excludes=[
         "torch", "torchvision", "ultralytics", "matplotlib",
         "PyQt5", "PySide6", "notebook", "IPython",
+        # FileGDB 导出依赖 GDAL/pyogrio/geopandas，PyInstaller 打包跨平台极不稳定，
+        # 且 exporter.py 中 GDB 导出已用 try/except 包裹、失败可降级（SHP 仍可用），
+        # 因此从冻结包中剔除，保证安装包可稳定构建与运行；FileGDB 作为已知限制后续再补。
+        "geopandas", "pyogrio",
     ],
 )
 
-# 各第三方包（cv2 / numpy / geopandas / shapely / onnxruntime / webview）均有官方/贡献内置 hook，
-# 会在 Analysis 阶段自动收集它们的二进制（.dylib/.so/.dll）与必要子模块，无需手动 collect_all。
-# 手动 collect_all 会把 webview/lib/runtimes（目录）等误判为二进制，导致打包阶段报错，
-# 因此这里只补充 hiddenimports，避免漏掉动态后端/子模块。
-for pkg in ["webview", "pyogrio", "geopandas", "shapely", "onnxruntime", "cv2", "numpy"]:
+# cv2 / numpy / onnxruntime / webview / shapely 均有官方/贡献内置 hook，
+# 会在 Analysis 阶段自动收集其二进制（.dylib/.so/.dll）与子模块，无需手动 collect_all。
+# 手动 collect_all 会把 webview/lib/runtimes（目录）等误判为二进制导致报错，
+# 因此这里仅补充 hiddenimports 以覆盖动态后端/子模块，二进制交给内置 hook。
+for pkg in ["webview", "shapely", "onnxruntime", "cv2", "numpy"]:
     try:
         a.hiddenimports += collect_submodules(pkg)
     except Exception:
         pass
 
-# pyogrio 依赖 GDAL 数据文件（proj.db / gdal 数据）。这些“数据文件”不会被 import 跟踪自动收集，
-# 必须显式收集，否则运行时 geopandas/pyogrio 导出 SHP / FileGDB 会因找不到 GDAL_DATA 而失败。
-# 仅收集“数据文件”，跳过目录与共享库（共享库交由 Analysis/内置 hook 以二进制方式收集，避免冲突）。
-_LIB_EXT = (".so", ".dylib", ".dll", ".pyd")
-try:
-    for d in collect_data_files("pyogrio"):
-        src = d[0]
-        if os.path.isdir(src):
-            continue
-        if os.path.splitext(src)[1].lower() in _LIB_EXT:
-            continue
-        a.datas.append((d[1], src, "DATA"))   # d = (source, dest) -> (dest, source, DATA)
-except Exception:
-    pass
-
 pyz = PYZ(a.pure)
+# 标准 onedir 布局：EXE 不内嵌二进制/数据（exclude_binaries=True），
+# 所有二进制与数据统一交给 COLLECT 落到 _internal 目录，避免 EXE/COLLECT 重复嵌入导致
+# macOS “Resource not a valid file” 与 Windows “needs to create a directory ... but a file exists”。
 exe = EXE(
-    pyz, a.scripts, a.binaries, a.datas, [],
+    pyz, a.scripts, [],
+    exclude_binaries=True,
     name=APP_NAME, debug=False,
     bootloader_ignore_signals=False, strip=False, upx=False, console=False,
 )
