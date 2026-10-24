@@ -14,6 +14,11 @@
   label { display: block; font-size: 13px; color: #4e5969; margin: 10px 0 4px; }
   input[type=text], input[type=number] { width: 100%; padding: 8px 10px; border: 1px solid #c9cdd4;
          border-radius: 6px; font-size: 14px; }
+  .path-row { display: flex; gap: 8px; }
+  .path-row input[type=text] { flex: 1; }
+  .path-row button.browse { margin-top: 0; padding: 8px 14px; font-size: 13px;
+         background: #e8f0fb; color: #2b6cb0; border: 1px solid #b6cbe8; white-space: nowrap; }
+  .path-row button.browse:hover { background: #d8e6f8; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 220px; }
   button { background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px;
@@ -39,9 +44,15 @@
   <div class="card">
     <div><b>模型状态</b> <span id="modelBadge" class="badge no">检测中…</span></div>
     <label>数据源目录（含 照片/ 与 轨迹/）</label>
-    <input type="text" id="dataDir" placeholder="例如 /path/众源感知测试数据源/测试" />
+    <div class="path-row">
+      <input type="text" id="dataDir" placeholder="点击右侧「浏览…」选择，或手动输入路径" />
+      <button class="browse" id="browseData" type="button">浏览…</button>
+    </div>
     <label>输出目录</label>
-    <input type="text" id="outDir" placeholder="例如 /path/output" />
+    <div class="path-row">
+      <input type="text" id="outDir" placeholder="点击右侧「浏览…」选择，或手动输入路径" />
+      <button class="browse" id="browseOut" type="button">浏览…</button>
+    </div>
     <div class="row">
       <div><label>置信度阈值 conf</label><input type="number" id="conf" value="0.35" step="0.05" min="0.1" max="0.9" /></div>
       <div><label>最大处理影像数（0=全部）</label><input type="number" id="maxImg" value="0" min="0" /></div>
@@ -90,7 +101,23 @@ window.addEventListener('pywebviewready', async () => {
 let timer = null;
 function setStatus(t) { document.getElementById('status').textContent = t; }
 
-document.getElementById('scanBtn').onclick = async () => {
+async function pickDir(inputId, title) {
+  try {
+    const r = await call('pick_folder', title || '选择目录');
+    if (r && r.ok && r.path) {
+      document.getElementById(inputId).value = r.path;
+      return r.path;
+    }
+    if (r && r.error) alert('打开目录选择器失败: ' + r.error);
+  } catch (e) { alert('打开目录选择器失败: ' + e); }
+  return null;
+}
+document.getElementById('browseData').onclick = async () => {
+  if (await pickDir('dataDir', '选择数据源目录（含 照片/ 与 轨迹/）')) scanDir();
+};
+document.getElementById('browseOut').onclick = () => pickDir('outDir', '选择输出目录');
+
+async function scanDir() {
   const d = document.getElementById('dataDir').value.trim();
   const info = document.getElementById('scanInfo');
   if (!d) { info.textContent = '请先填写数据源目录'; return; }
@@ -99,7 +126,9 @@ document.getElementById('scanBtn').onclick = async () => {
   if (r.error) { info.textContent = '扫描失败: ' + r.error; return; }
   info.textContent = `影像 ${r.images} 张 / 位姿 ${r.poses} 条 / 可配对 ${r.matched} 张`;
   document.getElementById('runBtn').disabled = r.matched === 0;
-};
+}
+
+document.getElementById('scanBtn').onclick = scanDir;
 
 document.getElementById('runBtn').onclick = async () => {
   const dataDir = document.getElementById('dataDir').value.trim();

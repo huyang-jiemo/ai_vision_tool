@@ -1,5 +1,6 @@
 """JS↔Python 桥：后台线程跑 Pipeline，前端轮询状态。"""
 import base64
+import os
 import threading
 from pathlib import Path
 
@@ -32,6 +33,20 @@ class Api:
     # ---- 前端调用 ----
     def ping(self):
         return "pong"
+
+    def pick_folder(self, title="选择目录"):
+        """弹出系统文件夹选择对话框，返回 {"ok": bool, "path": str}。"""
+        import webview
+        try:
+            result = webview.create_file_dialog(
+                webview.FOLDER_DIALOG,
+                title=title,
+                folder_path=os.path.expanduser("~"))
+            if result:
+                return {"ok": True, "path": result[0]}
+            return {"ok": False, "path": ""}   # 用户取消
+        except Exception as e:
+            return {"ok": False, "path": "", "error": str(e)}
 
     def model_status(self):
         p = Path(self.cfg.detector_model)
