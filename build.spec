@@ -23,10 +23,14 @@ a = Analysis(
 
 for pkg in ["webview", "pyogrio", "onnxruntime", "cv2", "numpy", "shapely", "geopandas"]:
     try:
-        data = collect_all(pkg)
-        a.datas += data[0]
-        a.binaries += data[1]
-        a.hiddenimports += data[2]
+        datas, binaries, hiddenimports = collect_all(pkg)
+        for d in datas:                       # datas: (dest, src)
+            a.datas.append((d[0], d[1]))
+        for b in binaries:                    # 规整为 3 元组 (dest, src, typecode)
+            if len(b) == 2:
+                b = (b[0], b[1], "B")
+            a.binaries.append((b[0], b[1], b[2]))
+        a.hiddenimports += hiddenimports
     except Exception:
         pass
 
