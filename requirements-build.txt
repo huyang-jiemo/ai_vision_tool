@@ -1,0 +1,7 @@
+# 仅构建期使用（CI / 本地生成模型，不打包进产物）
+ultralytics
+torch
+torchvision
+onnx
+onnxsim
+pyinstaller

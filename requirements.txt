@@ -1,0 +1,10 @@
+# 运行时依赖（打包进 .app/.exe，目标机零安装）
+opencv-python-headless
+numpy>=1.24,<2.0
+onnxruntime
+Pillow
+shapely
+pyshp
+pywebview>=4.4
+pyogrio>=0.7
+geopandas

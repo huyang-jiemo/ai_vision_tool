@@ -1,2 +1,27 @@
 .DS_Store
 众源感知测试数据源/
+
+# 模型与构建产物（模型由 CI 构建期生成，不入库）
+models/*.onnx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+*.spec.bak
+.pytest_cache/
+
+# 本地输出
+output/
+preview/
+result_*.shp
+result_*.shx
+result_*.dbf
+result_*.prj
+result_*.gdb/
+
+# 项目记忆（本地）
+.workbuddy/

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Vision Tool</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f7f8fa; color: #1f2329; }
+  header { background: #2b6cb0; color: #fff; padding: 14px 20px; font-size: 18px; font-weight: 600; }
+  .wrap { max-width: 1100px; margin: 18px auto; padding: 0 16px; }
+  .card { background: #fff; border: 1px solid #e5e6eb; border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #4e5969; margin: 10px 0 4px; }
+  input[type=text], input[type=number] { width: 100%; padding: 8px 10px; border: 1px solid #c9cdd4;
+         border-radius: 6px; font-size: 14px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 220px; }
+  button { background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px;
+           font-size: 14px; cursor: pointer; margin-top: 12px; }
+  button:disabled { background: #a9c2dd; cursor: not-allowed; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 6px; }
+  .ok { background: #e8ffea; color: #1a7f37; }
+  .no { background: #ffece8; color: #c0362c; }
+  #progress { height: 10px; background: #e5e6eb; border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  #bar { height: 100%; width: 0; background: #2b6cb0; transition: width .2s; }
+  #log { background: #0f1419; color: #d6e2f0; font-family: ui-monospace, Menlo, monospace;
+         font-size: 12px; height: 200px; overflow: auto; padding: 10px; border-radius: 8px; white-space: pre-wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #e5e6eb; padding: 6px 8px; text-align: left; }
+  th { background: #f2f3f5; }
+  .hint { font-size: 12px; color: #86909c; }
+</style>
+</head>
+<body>
+<header>AI Vision Tool · 众源感知自动解译工具</header>
+<div class="wrap">
+
+  <div class="card">
+    <div><b>模型状态</b> <span id="modelBadge" class="badge no">检测中…</span></div>
+    <label>数据源目录（含 照片/ 与 轨迹/）</label>
+    <input type="text" id="dataDir" placeholder="例如 /path/众源感知测试数据源/测试" />
+    <label>输出目录</label>
+    <input type="text" id="outDir" placeholder="例如 /path/output" />
+    <div class="row">
+      <div><label>置信度阈值 conf</label><input type="number" id="conf" value="0.35" step="0.05" min="0.1" max="0.9" /></div>
+      <div><label>最大处理影像数（0=全部）</label><input type="number" id="maxImg" value="0" min="0" /></div>
+    </div>
+    <div class="row">
+      <div><label><input type="checkbox" id="fisheye" checked /> 鱼眼矫正</label></div>
+      <div><label><input type="checkbox" id="gdb" checked /> 导出 File GDB</label></div>
+    </div>
+    <button id="scanBtn">扫描目录</button>
+    <button id="runBtn" disabled>开始解译</button>
+    <div id="scanInfo" class="hint" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <b>进度</b>
+    <div id="progress"><div id="bar"></div></div>
+    <div id="status" class="hint" style="margin-top:6px;">空闲</div>
+  </div>
+
+  <div class="card">
+    <b>运行日志</b>
+    <div id="log"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <b>结果统计</b>
+    <div id="resultBody"></div>
+  </div>
+</div>
+
+<script>
+const api = window.pywebview ? null : null;
+function call(name, ...args) {
+  return new Promise((resolve, reject) => {
+    const fn = window.pywebview.api[name];
+    Promise.resolve(fn(...args)).then(resolve).catch(reject);
+  });
+}
+window.addEventListener('pywebviewready', async () => {
+  const st = await call('model_status');
+  const badge = document.getElementById('modelBadge');
+  if (st.available) { badge.textContent = '已就绪'; badge.className = 'badge ok'; }
+  else { badge.textContent = '缺失(仅车道线)'; badge.className = 'badge no'; }
+});
+
+let timer = null;
+function setStatus(t) { document.getElementById('status').textContent = t; }
+
+document.getElementById('scanBtn').onclick = async () => {
+  const d = document.getElementById('dataDir').value.trim();
+  const info = document.getElementById('scanInfo');
+  if (!d) { info.textContent = '请先填写数据源目录'; return; }
+  info.textContent = '扫描中…';
+  const r = await call('scan_directory', d);
+  if (r.error) { info.textContent = '扫描失败: ' + r.error; return; }
+  info.textContent = `影像 ${r.images} 张 / 位姿 ${r.poses} 条 / 可配对 ${r.matched} 张`;
+  document.getElementById('runBtn').disabled = r.matched === 0;
+};
+
+document.getElementById('runBtn').onclick = async () => {
+  const dataDir = document.getElementById('dataDir').value.trim();
+  const outDir = document.getElementById('outDir').value.trim();
+  const conf = parseFloat(document.getElementById('conf').value);
+  const maxImg = parseInt(document.getElementById('maxImg').value, 10) || 0;
+  const fisheye = document.getElementById('fisheye').checked;
+  const gdb = document.getElementById('gdb').checked;
+  if (!dataDir || !outDir) { alert('请填写数据源与输出目录'); return; }
+  document.getElementById('runBtn').disabled = true;
+  const r = await call('start_pipeline', dataDir, outDir, conf, maxImg || null, fisheye, gdb);
+  if (!r.started) { alert(r.error || '启动失败'); document.getElementById('runBtn').disabled = false; return; }
+  poll();
+};
+
+function poll() {
+  timer = setInterval(async () => {
+    const s = await call('get_status');
+    document.getElementById('bar').style.width = (s.total ? (s.progress / s.total * 100) : 0) + '%';
+    setStatus(`状态: ${s.state}  ${s.progress}/${s.total}  ${s.current}`);
+    const log = document.getElementById('log');
+    log.textContent = s.logs.join('\n');
+    log.scrollTop = log.scrollHeight;
+    if (s.state === 'done' || s.state === 'error') {
+      clearInterval(timer);
+      document.getElementById('runBtn').disabled = false;
+      if (s.state === 'error') setStatus('错误: ' + s.error);
+      if (s.result) showResult(s.result);
+    }
+  }, 400);
+}
+
+function showResult(r) {
+  const card = document.getElementById('resultCard');
+  card.style.display = 'block';
+  let html = '<table><tr><th>期次</th><th>目标数</th><th>车道线数</th></tr>';
+  for (const [k, v] of Object.entries(r.per_session)) {
+    html += `<tr><td>${k}</td><td>${v.det}</td><td>${v.lane}</td></tr>`;
+  }
+  html += '</table>';
+  html += `<p class="hint">时序变化要素：${r.change_count} 条 ${r.change_path ? '(' + r.change_path + ')' : ''}</p>`;
+  html += `<p class="hint">输出目录：${r.output_dir}</p>`;
+  document.getElementById('resultBody').innerHTML = html;
+}
+</script>
+</body>
+</html>
