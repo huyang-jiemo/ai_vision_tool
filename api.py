@@ -1,6 +1,8 @@
 """JS↔Python 桥：后台线程跑 Pipeline，前端轮询状态。"""
 import base64
 import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -58,6 +60,21 @@ class Api:
         if p.exists():
             return {"available": True, "path": str(p), "size_bytes": p.stat().st_size}
         return {"available": False, "path": str(p), "size_bytes": 0}
+
+    def open_folder(self, path):
+        """在系统文件管理器中打开目录。"""
+        try:
+            if not path or not os.path.isdir(path):
+                return {"ok": False, "error": "目录不存在"}
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            elif os.name == "nt":
+                os.startfile(path)  # noqa: 仅 Windows
+            else:
+                subprocess.Popen(["xdg-open", path])
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     def scan_directory(self, path):
         from pipeline.data_loader import DataProject

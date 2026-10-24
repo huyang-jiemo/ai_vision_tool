@@ -5,6 +5,9 @@ from PyInstaller.utils.hooks import collect_submodules
 APP_NAME = "AI-Vision-Tool"
 ROOT = SPECPATH  # PyInstaller 执行 spec 时不提供 __file__，用 SPECPATH（spec 所在目录）
 MODELS = os.path.join(ROOT, "models")
+ICON_DIR = os.path.join(ROOT, "assets")
+ICON_ICO = os.path.join(ICON_DIR, "app.ico")
+ICON_ICNS = os.path.join(ICON_DIR, "app.icns")
 
 a = Analysis(
     ["app.py"],
@@ -54,12 +57,14 @@ exe = EXE(
     exclude_binaries=True,
     name=APP_NAME, debug=False,
     bootloader_ignore_signals=False, strip=False, upx=False, console=False,
+    icon=ICON_ICO,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name=APP_NAME)
 
 app = BUNDLE(
     coll, name=APP_NAME + ".app",
     bundle_identifier="com.zhongxiang.aivisiontool",
+    icon=ICON_ICNS,
     info_plist={
         "NSHighResolutionCapable": True,
         "CFBundleName": "AI Vision Tool",
