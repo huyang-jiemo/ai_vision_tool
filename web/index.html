@@ -60,9 +60,9 @@
   .card-head .ht { display: flex; flex-direction: column; }
   .card-head .t1 { font-size: 14px; font-weight: 700; }
   .card-head .t2 { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
-  .ticon { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center;
+  .ticon { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center;
            justify-content: center; flex-shrink: 0; box-shadow: var(--sh-1); }
-  .ticon svg { width: 14px; height: 14px; }
+  .ticon svg { width: 16px; height: 16px; }
   .ticon.blue { background: linear-gradient(135deg,#4F7DFF,#3370FF); color: #fff; }
   .ticon.violet { background: linear-gradient(135deg,#9B7BFF,#7C5CFF); color: #fff; }
   .ticon.dark { background: linear-gradient(135deg,#414652,#1E2126); color: #fff; }
@@ -95,30 +95,36 @@
              transform: translateY(-1px); box-shadow: 0 4px 12px rgba(43,92,230,.36); }
   .primary:active:not(:disabled) { transform: translateY(0); }
   .primary.big { font-size: 14px; }
+  .primary.sm { height: 36px; padding: 0 15px; font-size: 13px; }
+  .primary.sm svg { width: 15px; height: 15px; }
   .ghost { background: var(--card); color: var(--primary); border: 1px solid var(--line-2);
            height: 36px; padding: 0 13px; display: inline-flex; align-items: center; gap: 6px;
            white-space: nowrap; font-weight: 500; }
   .ghost:hover:not(:disabled) { background: var(--primary-050); border-color: var(--primary); }
   .ghost.sq { width: 36px; padding: 0; justify-content: center; }
   .ghost svg { width: 15px; height: 15px; }
-  .checks { display: flex; gap: 8px; align-items: center; height: 36px; }
-  .check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; color: var(--ink-1);
-           font-size: 13px; margin: 0; background: var(--hover); border: 1px solid var(--line);
-           height: 36px; padding: 0 13px; border-radius: var(--r-sm); transition: all var(--ease);
-           user-select: none; }
-  .check:hover { border-color: var(--ink-4); }
-  .check:has(input:checked) { background: var(--primary-050); border-color: var(--primary);
-           color: var(--primary); font-weight: 500; }
-  .check input { accent-color: var(--primary); width: 14px; height: 14px; }
+  .checks { display: flex; gap: 18px; align-items: center; height: 36px; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+            color: var(--ink-1); font-size: 13px; margin: 0; height: 36px;
+            padding: 0 4px; user-select: none; font-weight: 500; }
+  .switch input { display: none; }
+  .switch .track { width: 36px; height: 20px; border-radius: 10px; background: #D5DAE2;
+                   position: relative; transition: background var(--ease); flex-shrink: 0; }
+  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px;
+                   height: 16px; border-radius: 50%; background: #fff;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.22); transition: transform var(--ease); }
+  .switch input:checked + .track { background: var(--primary); }
+  .switch input:checked + .track::after { transform: translateX(16px); }
+  .switch:hover .track { background: #C3C9D4; }
+  .switch input:checked:hover + .track { background: var(--primary); }
   .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.6; word-break: break-all; }
   .hint.ok { color: var(--green); }
   .hint.err { color: var(--red); }
 
   /* ══════════ 下区 ══════════ */
-  .bottom { display: grid; grid-template-columns: minmax(400px, 465px) 1fr; gap: 14px;
+  .bottom { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
             flex: 1; min-height: 0; align-items: stretch; }
   .bottom > .card { display: flex; flex-direction: column; min-height: 0; }
-  #emptyView { flex: 1; display: flex; align-items: center; justify-content: center; }
   #runView { flex: 1; min-height: 0; flex-direction: column; }
   .right-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
   .right-col .card { display: flex; flex-direction: column; min-height: 0; }
@@ -151,11 +157,11 @@
 
   .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
   .tile { border-radius: var(--r-md); padding: 10px 12px; display: flex; align-items: center; gap: 9px; }
-  .tile .tic { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center;
+  .tile .tic { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center;
                justify-content: center; flex-shrink: 0; }
-  .tile .tic svg { width: 14px; height: 14px; }
-  .tile .k { font-size: 10.5px; color: var(--ink-3); }
-  .tile .v { font-size: 18px; font-weight: 700; line-height: 1.15; }
+  .tile .tic svg { width: 16px; height: 16px; }
+  .tile .k { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+  .tile .v { font-size: 18px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
   .tile.total { background: var(--primary-050); }
   .tile.total .tic { background: #fff; color: var(--primary); } .tile.total .v { color: var(--primary); }
   .tile.ok { background: var(--green-050); }
@@ -177,6 +183,8 @@
 
   .file-list { flex: 1; min-height: 140px; overflow: auto; border: 1px solid var(--line);
                border-radius: var(--r-md); }
+  .file-list:empty::after { content: "选择数据源并开始解译后，此处展示文件队列"; display: block;
+               padding: 22px 14px; text-align: center; color: var(--ink-4); font-size: 12px; }
   .frow { display: flex; align-items: center; gap: 10px; padding: 7px 13px;
           border-bottom: 1px solid var(--line); font-size: 12.5px; transition: background var(--ease); }
   .frow:last-child { border-bottom: 0; }
@@ -211,6 +219,8 @@
   th:not(:first-child), td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
   tr:last-child td { border-bottom: 0; }
   td .num { font-weight: 700; color: var(--primary); }
+  #resultBody:empty::after { content: "解译完成后，此处展示各批次矢量统计"; display: block;
+               padding: 16px 2px; color: var(--ink-3); font-size: 12.5px; }
 
   /* ══════════ 空状态 ══════════ */
   .empty { text-align: center; padding: 34px 0 26px; color: var(--ink-3); }
@@ -243,8 +253,8 @@
       <path d="M436 612 L464 384 L560 384 L588 612 Z" fill="#1B3D7C"/>
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
-    <div class="tt"><span class="name">众源感知自动解译工具</span><span class="sub">影像智能解译 · 地理参考 · 时序变化</span></div>
-    <span class="badge-ver">v0.2.2</span>
+    <div class="tt"><span class="name">众源感知自动解译工具</span></div>
+    <span class="badge-ver">v0.2.3</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
@@ -262,8 +272,8 @@
       <div class="cfg-field w1">
         <label>数据源目录</label>
         <div class="path-row">
-          <input type="text" id="dataDir" placeholder="包含按期次配对的 照片/ 与 轨迹/" />
-          <button class="ghost" id="browseData" type="button">
+          <input type="text" id="dataDir" placeholder="包含按批次配对的 照片/ 与 轨迹/" />
+          <button class="primary sm" id="browseData" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
         </div>
       </div>
@@ -271,11 +281,8 @@
         <label>输出目录</label>
         <div class="path-row">
           <input type="text" id="outDir" placeholder="解译结果保存位置" />
-          <button class="ghost" id="browseOut" type="button">
+          <button class="primary sm" id="browseOut" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
-          <button class="ghost sq" id="openOut" type="button" title="打开输出目录">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
-          </button>
         </div>
       </div>
       <div class="cfg-field w3">
@@ -287,11 +294,11 @@
         <input type="number" id="maxImg" value="0" min="0" />
       </div>
       <div class="checks">
-        <label class="check"><input type="checkbox" id="fisheye" checked />鱼眼矫正</label>
-        <label class="check"><input type="checkbox" id="gdb" checked />导出 GDB</label>
+        <label class="switch"><input type="checkbox" id="fisheye" checked /><span class="track"></span>鱼眼矫正</label>
+        <label class="switch"><input type="checkbox" id="gdb" checked /><span class="track"></span>导出 GDB</label>
       </div>
     </div>
-    <div id="scanInfo" class="hint">数据源目录需包含按期次同名配对的 照片/ 与 轨迹/ 子目录</div>
+    <div id="scanInfo" class="hint">数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录</div>
   </div>
 
   <!-- 下：左进度 / 右日志+结果 -->
@@ -304,30 +311,14 @@
         <span id="stateChip" class="chip idle">待机</span>
       </div>
 
-      <div id="emptyView">
-        <div class="empty">
-          <svg class="art" viewBox="0 0 168 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="14" y="18" width="86" height="66" rx="8" fill="#EEF3FF"/>
-            <rect x="26" y="32" width="62" height="7" rx="3.5" fill="#C6D6FF"/>
-            <rect x="26" y="47" width="44" height="7" rx="3.5" fill="#DCE6FF"/>
-            <rect x="26" y="62" width="53" height="7" rx="3.5" fill="#DCE6FF"/>
-            <circle cx="124" cy="72" r="20" fill="#F0EDFF"/>
-            <path d="M124 84c-6-7-11-12-11-18a11 11 0 1 1 22 0c0 6-5 11-11 18z" fill="#7C5CFF"/>
-            <path d="M96 96l16-10 14 8 20-14" stroke="#3370FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="146" cy="80" r="4" fill="#3370FF"/>
-          </svg>
-          <p>开始解译后，此处展示整体进度与逐文件状态</p>
-        </div>
-      </div>
-
-      <div id="runView" style="display:none">
+      <div id="runView">
         <div class="pct-row">
           <span class="pct num" id="pct">0<small>%</small></span>
           <span class="pct-sub num" id="pctSub">0 / 0</span>
         </div>
         <div class="bar"><div id="bar"></div></div>
         <div class="tiles">
-          <div class="tile total"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span><div><div class="k">影像总数</div><div class="v num" id="tTotal">0</div></div></div>
+          <div class="tile total"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span><div><div class="k">总数</div><div class="v num" id="tTotal">0</div></div></div>
           <div class="tile ok"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><div><div class="k">成功</div><div class="v num" id="tOk">0</div></div></div>
           <div class="tile bad"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span><div><div class="k">失败</div><div class="v num" id="tBad">0</div></div></div>
           <div class="tile time"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span><div><div class="k">已用时</div><div class="v num" id="tTime">00:00</div></div></div>
@@ -353,13 +344,13 @@
         <div id="log" class="log"></div>
       </div>
 
-      <div class="card" id="resultCard" style="display:none">
+      <div class="card" id="resultCard">
         <div class="card-head">
           <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-          <div class="ht"><span class="t1">解译结果</span><span class="t2">各期次矢量统计</span></div>
+          <div class="ht"><span class="t1">解译结果</span><span class="t2">各批次矢量统计</span></div>
           <span class="spacer"></span>
-          <button class="ghost" id="openOut2" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
+          <button class="primary sm" id="openOut2" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8.6a1 1 0 0 1-.83-.45L9.4 4.45A1 1 0 0 0 8.57 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/><path d="M11 16V9M8 12l3-3 3 3"/></svg>
             打开输出目录</button>
         </div>
         <div id="resultBody" style="margin-top:6px"></div>
@@ -432,7 +423,6 @@ async function openOutDir() {
 }
 el('browseData').onclick = async () => { if (await pickDir('dataDir', '选择数据源目录')) scanDir(); };
 el('browseOut').onclick = () => pickDir('outDir', '选择输出目录');
-el('openOut').onclick = openOutDir;
 el('openOut2').onclick = openOutDir;
 
 /* ---------- 扫描 ---------- */
@@ -483,9 +473,6 @@ el('runBtn').onclick = async () => {
 
   runStartTs = Date.now();
   setChip('run');
-  el('emptyView').style.display = 'none';
-  el('runView').style.display = 'flex';
-  el('resultCard').style.display = 'none';
   el('errBox').style.display = 'none';
   el('runBtn').disabled = true;
   clearInterval(elapsedTimer);
@@ -561,8 +548,7 @@ function renderFiles(files, current) {
 
 /* ---------- 结果 ---------- */
 function showResult(r) {
-  el('resultCard').style.display = 'block';
-  let html = '<table><tr><th>期次</th><th>目标数</th><th>车道线数</th></tr>';
+  let html = '<table><tr><th>批次</th><th>目标数</th><th>车道线数</th></tr>';
   for (const [k, v] of Object.entries(r.per_session)) {
     html += `<tr><td>${k}</td><td><span class="num">${v.det}</span></td><td><span class="num">${v.lane}</span></td></tr>`;
   }
