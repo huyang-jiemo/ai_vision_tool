@@ -29,6 +29,7 @@ jobs:
         with:
           name: macOS-arm64
           path: AI-Vision-Tool-macOS-arm64.zip
+          retention-days: 7   # 自动过期，避免长期占用账号 500MB 制品配额
 
   build-windows:
     runs-on: windows-latest
@@ -52,6 +53,7 @@ jobs:
         with:
           name: Windows-x64
           path: AI-Vision-Tool-Windows-x64.zip
+          retention-days: 7   # 自动过期，避免长期占用账号 500MB 制品配额
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

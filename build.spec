@@ -22,6 +22,9 @@ a = Analysis(
         # 且 exporter.py 中 GDB 导出已用 try/except 包裹、失败可降级（SHP 仍可用），
         # 因此从冻结包中剔除，保证安装包可稳定构建与运行；FileGDB 作为已知限制后续再补。
         "geopandas", "pyogrio",
+        # pandas/lxml/openpyxl 仅被 GDB 导出路径的 _gdf() 懒加载使用，随 geopandas 一起剔除，
+        # 可减小安装包约 60-80MB 且不影响 SHP 导出与主流程。
+        "pandas",
     ],
 )
 
