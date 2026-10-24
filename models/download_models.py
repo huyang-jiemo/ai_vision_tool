@@ -16,17 +16,23 @@ OUT = ROOT / "yolo11n.onnx"
 def main():
     from ultralytics import YOLO
     model = YOLO("yolo11n.pt")  # 自动从 ultralytics hub 下载
-    model.export(format="onnx", imgsz=640, simplify=True, opset=12, dynamic=False)
+    result = model.export(format="onnx", imgsz=640, simplify=True, opset=12, dynamic=False)
 
-    # glob 兜底：遍历常见落点，按 mtime 取最新
-    candidates = []
-    for pat in ("yolo11n*.onnx", "**/yolo11n*.onnx"):
-        for p in glob.glob(str(ROOT / pat), recursive=True):
-            candidates.append(Path(p))
-    if not candidates:
+    # ultralytics 的 export() 返回导出路径（字符串）；不同版本落点不同
+    # （可能落在仓库根目录或 models/），统一兜底搜索后移动到 models/yolo11n.onnx
+    src = None
+    if isinstance(result, (str, Path)) and Path(result).exists():
+        src = Path(result)
+    if src is None:
+        candidates = []
+        for base in (ROOT, ROOT.parent):
+            candidates += list(base.glob("yolo11n*.onnx"))
+        candidates = [p for p in candidates if p != OUT]
+        if candidates:
+            src = max(candidates, key=lambda p: p.stat().st_mtime)
+    if src is None or not src.exists():
         raise RuntimeError("未找到导出的 yolo11n onnx 文件")
-    latest = max(candidates, key=lambda p: p.stat().st_mtime)
-    latest.replace(OUT)
+    src.replace(OUT)
     print(f"[ok] 模型已生成: {OUT}  ({OUT.stat().st_size/1e6:.1f} MB)")
 
 
