@@ -35,13 +35,18 @@ class Api:
         return "pong"
 
     def pick_folder(self, title="选择目录"):
-        """弹出系统文件夹选择对话框，返回 {"ok": bool, "path": str}。"""
+        """弹出系统文件夹选择对话框，返回 {"ok": bool, "path": str}。
+
+        注意：pywebview 5.x 起模块级 create_file_dialog 已移除，
+        必须通过 window.create_file_dialog 调用。
+        """
         import webview
         try:
-            result = webview.create_file_dialog(
-                webview.FOLDER_DIALOG,
-                title=title,
-                folder_path=os.path.expanduser("~"))
+            if not webview.windows:
+                return {"ok": False, "path": "", "error": "窗口尚未就绪，请稍后再试"}
+            result = webview.windows[0].create_file_dialog(
+                webview.FOLDER_DIALOG,   # 20，兼容旧常量（新写法 FileDialog.FOLDER）
+                directory=os.path.expanduser("~"))
             if result:
                 return {"ok": True, "path": result[0]}
             return {"ok": False, "path": ""}   # 用户取消
