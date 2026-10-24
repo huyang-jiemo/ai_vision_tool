@@ -38,6 +38,13 @@ for pkg in ["webview", "shapely", "onnxruntime", "cv2", "numpy"]:
     except Exception:
         pass
 
+# 本项目 pipeline 包全量子模块强制收集：防止个别模块经动态导入
+# （__import__/importlib）被 PyInstaller 静态分析漏掉
+try:
+    a.hiddenimports += collect_submodules("pipeline")
+except Exception:
+    pass
+
 pyz = PYZ(a.pure)
 # 标准 onedir 布局：EXE 不内嵌二进制/数据（exclude_binaries=True），
 # 所有二进制与数据统一交给 COLLECT 落到 _internal 目录，避免 EXE/COLLECT 重复嵌入导致

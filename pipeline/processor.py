@@ -14,6 +14,9 @@ from .exporter import (export_lines_gdb, export_lines_shp, export_points_gdb,
                       export_points_shp)
 from .georeference import GeoReferencer
 from .lane_detector import LaneDetector
+# 注意：必须静态导入。此前用 __import__("pipeline.undistort") 动态导入，
+# PyInstaller 静态分析看不到，导致打包后运行报 No module named 'pipeline.undistort'。
+from .undistort import FisheyeCorrector
 
 
 @dataclass
@@ -40,7 +43,7 @@ class Pipeline:
         if self._corrector and self._corr_dims == (w, h, scale):
             return self._corrector
         f = self.cfg.fisheye
-        corr = __import__("pipeline.undistort", fromlist=["FisheyeCorrector"]).FisheyeCorrector(
+        corr = FisheyeCorrector(
             f["fx"] * scale, f["fy"] * scale, f["cx"] * scale, f["cy"] * scale,
             f["k1"], f["k2"], int(w * scale), int(h * scale))
         self._corrector = corr
