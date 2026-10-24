@@ -1,12 +1,14 @@
 .DS_Store
 
-# 本地文档与测试数据（docs/ 整体不入库）
-docs/
+# 测试数据不入库；交付说明文档需要入库
+docs/*
+!docs/众源感知AI解译工具说明.md
 .idea/
 
-# 模型与构建产物（模型由 CI 构建期生成，不入库）
+# 构建产物不入库；yolo11n.pt 权重入库（CI 导出 ONNX 用）
 models/*.onnx
 *.pt
+!yolo11n.pt
 
 # Python
 __pycache__/

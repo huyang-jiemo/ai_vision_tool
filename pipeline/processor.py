@@ -71,11 +71,13 @@ class Pipeline:
             cv2.putText(img, f"{d.class_name}:{d.score:.2f}", (x1, max(0, y1 - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 255), 1)
         for ln in lanes:
-            for x, y in ln.points_px:
-                cv2.circle(img, (int(x), int(y)), 2, (0, 255, 0), -1)
+            color = (0, 0, 255) if ln.side == "left" else (0, 255, 0)
+            pts = np.array([(int(x), int(y)) for x, y in ln.points_px], np.int32)
+            cv2.polylines(img, [pts], False, color, 2)
 
     def process_project(self, data_dir, output_dir, max_images=None, progress_cb=None,
-                        export_gdb=True, use_fisheye=None, enable_change=None):
+                        export_shp=True, export_gdb=True, use_fisheye=None,
+                        enable_change=None):
         import cv2  # 延迟导入（processor 始终在含 cv2 环境运行）
         cfg = self.cfg
         use_fisheye = cfg.use_fisheye if use_fisheye is None else use_fisheye
@@ -146,13 +148,15 @@ class Pipeline:
                 if progress_cb:
                     progress_cb(i + 1, total, im_rec.filename, 0, 0, False)
 
-        # 导出每期次
+        # 导出每批次
         for sname, pts in session_points.items():
             lanes = session_lanes.get(sname, [])
-            sp = out / f"result_{sname}.shp"
-            sl = out / f"result_lanes_{sname}.shp"
-            export_points_shp(sp, pts)
-            export_lines_shp(sl, lanes)
+            sp = sl = ""
+            if export_shp:
+                sp = out / f"result_{sname}.shp"
+                sl = out / f"result_lanes_{sname}.shp"
+                export_points_shp(sp, pts)
+                export_lines_shp(sl, lanes)
             gdb_ok = False
             if export_gdb:
                 gdb = out / f"result_{sname}.gdb"
@@ -163,7 +167,8 @@ class Pipeline:
                     while _gdb_warn:
                         self.errors.append(_gdb_warn.pop(0))
             per_session[sname] = {"det": len(pts), "lane": len(lanes),
-                                   "shp": str(sp), "gdb": str(gdb) if (export_gdb and gdb_ok) else ""}
+                                   "shp": str(sp) if sp else "",
+                                   "gdb": str(gdb) if (export_gdb and gdb_ok) else ""}
 
         # 时序变化（v0.1 必做）
         change_count = 0
@@ -172,12 +177,14 @@ class Pipeline:
             changes = detect_changes(session_points)
             change_count = len(changes)
             if changes:
-                cp = out / "result_change.shp"
-                export_points_shp(cp, [dict(c, class_id=c.get("class_id", -1),
-                                            class_cn=c.get("class_cn", ""),
-                                            session=f"{c['session_a']}->{c['session_b']}",
-                                            image=c.get("change_type", ""),
-                                            dist=0.0, score=0.0) for c in changes])
+                cp = ""
+                if export_shp:
+                    cp = out / "result_change.shp"
+                    export_points_shp(cp, [dict(c, class_id=c.get("class_id", -1),
+                                                class_cn=c.get("class_cn", ""),
+                                                session=f"{c['session_a']}->{c['session_b']}",
+                                                image=c.get("change_type", ""),
+                                                dist=0.0, score=0.0) for c in changes])
                 if export_gdb:
                     if not export_points_gdb(out / "result_change.gdb", "changes", [
                         dict(c, class_id=c.get("class_id", -1), class_cn=c.get("class_cn", ""),
@@ -186,6 +193,6 @@ class Pipeline:
                         from .exporter import WARNINGS as _gdb_warn
                         while _gdb_warn:
                             self.errors.append(_gdb_warn.pop(0))
-                change_path = str(cp)
+                change_path = str(cp) if cp else ""
 
         return PipelineResult(str(out), per_session, change_count, change_path, self.errors)

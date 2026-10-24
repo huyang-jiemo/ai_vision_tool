@@ -88,13 +88,13 @@ class Api:
         except Exception as e:
             return {"images": 0, "poses": 0, "matched": 0, "sample": "", "error": str(e)}
 
-    def start_pipeline(self, data_dir, output_dir, conf=0.35, max_images=None,
-                       use_fisheye=True, export_gdb=True):
+    def start_pipeline(self, data_dir, output_dir, conf=0.20, max_images=None,
+                       export_shp=True, export_gdb=True):
         if self.state.state == "running":
             return {"started": False, "error": "已在运行中"}
         t = threading.Thread(
             target=self._run,
-            args=(data_dir, output_dir, conf, max_images, use_fisheye, export_gdb),
+            args=(data_dir, output_dir, conf, max_images, export_shp, export_gdb),
             daemon=True)
         t.start()
         return {"started": True}
@@ -134,7 +134,7 @@ class Api:
                 self._detector_err = str(e)
         return self._detector
 
-    def _run(self, data_dir, output_dir, conf, max_images, use_fisheye, export_gdb):
+    def _run(self, data_dir, output_dir, conf, max_images, export_shp, export_gdb):
         with self.state.lock:
             self.state.state = "running"
             self.state.progress = 0
@@ -179,8 +179,8 @@ class Api:
 
         try:
             res = pipe.process_project(
-                data_dir, output_dir, max_images=max_images,
-                progress_cb=cb, export_gdb=export_gdb, use_fisheye=use_fisheye)
+                data_dir, output_dir, max_images=max_images, progress_cb=cb,
+                export_shp=export_shp, export_gdb=export_gdb)
             with self.state.lock:
                 self.state.state = "done"
                 self.state.result = {

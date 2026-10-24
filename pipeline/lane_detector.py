@@ -1,6 +1,12 @@
-"""车道线检测：传统 CV（HSV 白/黄掩膜 + 梯形 ROI + 轮廓 + 二次多项式拟合）。
+"""车道线检测：HSV 白/黄掩膜 + Canny 门控 + Hough 直线段 + 分侧 RANSAC 拟合。
 
-在行车视角、鱼眼矫正后的影像下稳定，且完全可控，符合"演示级/零训练"。
+针对城市道路场景的三重约束抑制误检：
+1. 严格颜色掩膜沿线段采样评分（≥55%），排除护栏/车顶架等灰亮结构；
+2. 排除本车平台遮挡区（底部中央引擎盖/车顶/支架）；
+3. 收敛方向约束：左线上端向中心收（x_top > x_bot），右线相反，且上端
+   延伸需落在消失点邻域内。
+每侧最多输出 2 条线（本车道边界 + 相邻车道线），采样点仅取观测证据区间，
+不向遮挡区外推。
 """
 from __future__ import annotations
 
@@ -12,60 +18,111 @@ class LaneLine:
 
     def __init__(self, points_px, poly, fit_residual, side):
         self.points_px = points_px      # [(x,y),...] 像素
-        self.poly = poly                # np.poly1d
+        self.poly = poly                # np.poly1d（x = a*y+b）
         self.fit_residual = fit_residual
         self.side = side                # 'left' / 'right'
 
 
 class LaneDetector:
-    def __init__(self, roi_ratio=0.45, min_residual=5.0, max_residual=8.0):
+    def __init__(self, roi_ratio=0.50, min_support=120, max_lines_per_side=2):
         self.roi_ratio = roi_ratio
-        self.min_residual = min_residual
-        self.max_residual = max_residual
+        self.min_support = min_support
+        self.max_lines_per_side = max_lines_per_side
 
     def detect(self, img: np.ndarray):
         import cv2
+        rng = np.random.default_rng(42)
         h, w = img.shape[:2]
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        # 白色车道线
-        white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 40, 255]))
-        # 黄色车道线
-        yellow = cv2.inRange(hsv, np.array([15, 80, 120]), np.array([40, 255, 255]))
-        mask = cv2.bitwise_or(white, yellow)
+        white = cv2.inRange(hsv, np.array([0, 0, 200]), np.array([180, 50, 255]))
+        yellow = cv2.inRange(hsv, np.array([15, 80, 110]), np.array([40, 255, 255]))
+        color_mask = cv2.bitwise_or(white, yellow)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        edges = cv2.dilate(edges, np.ones((5, 5), np.uint8))
+        mask = cv2.bitwise_and(color_mask, edges)
 
-        # 梯形 ROI：保留下半屏
         roi_top = int(h * self.roi_ratio)
-        pts = np.array([[int(w * 0.1), h], [int(w * 0.4), roi_top],
-                        [int(w * 0.6), roi_top], [int(w * 0.9), h]], np.int32)
-        roi_mask = np.zeros_like(mask)
-        cv2.fillPoly(roi_mask, [pts], 255)
-        mask = cv2.bitwise_and(mask, roi_mask)
+        quad = np.array([[int(w * 0.05), h], [int(w * 0.38), roi_top],
+                         [int(w * 0.62), roi_top], [int(w * 0.95), h]], np.int32)
+        roi = np.zeros_like(mask)
+        cv2.fillPoly(roi, [quad], 255)
+        mask = cv2.bitwise_and(mask, roi)
+        # 排除本车平台遮挡区
+        ego = np.zeros_like(mask)
+        cv2.rectangle(ego, (int(w * 0.28), int(h * 0.70)), (int(w * 0.74), h), 255, -1)
+        mask = cv2.bitwise_and(mask, cv2.bitwise_not(ego))
 
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        raw = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=35,
+                              minLineLength=40, maxLineGap=30)
+        if raw is None:
+            return []
+
+        sides = {"left": [], "right": []}
+        for x1, y1, x2, y2 in raw.reshape(-1, 4):
+            n = 20
+            xs = np.linspace(x1, x2, n).astype(int)
+            ys = np.linspace(y1, y2, n).astype(int)
+            ok = (xs >= 0) & (xs < w) & (ys >= 0) & (ys < h)
+            if ok.sum() < n * 0.8:
+                continue
+            if color_mask[ys[ok], xs[ok]].mean() / 255.0 < 0.55:
+                continue
+            length = float(np.hypot(x2 - x1, y2 - y1))
+            ang = np.degrees(np.arctan2(abs(x2 - x1), abs(y2 - y1)))
+            if not (10 <= ang <= 75):
+                continue
+            sides["left" if (x1 + x2) / 2 < w / 2 else "right"].append(
+                (x1, y1, x2, y2, length))
+
         lanes = []
-        # 按 x 中值分左右
-        left_pts, right_pts = [], []
-        for c in contours:
-            if cv2.contourArea(c) < 80:
+        for side, segs in sides.items():
+            pts = []
+            for x1, y1, x2, y2, length in segs:
+                pts += [(y1, x1, length), (y2, x2, length)]
+            if len(pts) < 6:
                 continue
-            xy = c.reshape(-1, 2)
-            cx = xy[:, 0].mean()
-            if cx < w / 2:
-                left_pts.extend(xy.tolist())
-            else:
-                right_pts.extend(xy.tolist())
-        for side, pts in (("left", left_pts), ("right", right_pts)):
-            if len(pts) < 10:
-                continue
-            pts = np.array(pts, dtype=np.float64)
-            if np.std(pts[:, 1]) < 5:
-                continue
-            poly = np.poly1d(np.polyfit(pts[:, 1], pts[:, 0], 2))
-            resid = float(np.mean(np.abs(poly(pts[:, 1]) - pts[:, 0])))
-            if resid > self.max_residual:
-                continue
-            # 沿 y 采样用于地理参考
-            ys = np.linspace(roi_top, h - 1, 10)
-            sample = [(float(poly(y)), float(y)) for y in ys]
-            lanes.append(LaneLine(sample, poly, resid, side))
+            P = np.array(pts, np.float64)
+            remaining = P.copy()
+            for _ in range(self.max_lines_per_side):
+                if len(remaining) < 6:
+                    break
+                best_inl, best_sup = None, 0
+                for _ in range(300):
+                    i, j = rng.integers(0, len(remaining), 2)
+                    if i == j:
+                        continue
+                    y1, x1, _ = remaining[i]
+                    y2, x2, _ = remaining[j]
+                    if abs(y2 - y1) < 20:
+                        continue
+                    a = (x2 - x1) / (y2 - y1)
+                    b = x1 - a * y1
+                    inl = np.abs(a * remaining[:, 0] + b - remaining[:, 1]) < 6
+                    sup = remaining[inl, 2].sum()
+                    if sup > best_sup:
+                        best_sup, best_inl = sup, inl
+                if best_inl is None or best_sup < self.min_support:
+                    break
+                Q = remaining[best_inl]
+                a, b = np.polyfit(Q[:, 0], Q[:, 1], 1, w=Q[:, 2])
+                x_top, x_bot = a * roi_top + b, a * (h - 1) + b
+                if not (0.25 * w <= x_top <= 0.75 * w):
+                    continue
+                if not (0.02 * w <= x_bot <= 0.98 * w):
+                    continue
+                if side == "left" and x_top <= x_bot:
+                    continue
+                if side == "right" and x_top >= x_bot:
+                    continue
+                resid = float(np.median(np.abs(a * Q[:, 0] + b - Q[:, 1])))
+                # 采样点仅取观测证据区间（不外推到遮挡区）
+                y_lo = max(roi_top, float(Q[:, 0].min()) - 0.02 * h)
+                y_hi = min(h - 1.0, float(Q[:, 0].max()) + 0.04 * h)
+                ys = np.linspace(y_lo, y_hi, 12)
+                sample = [(float(a * y + b), float(y)) for y in ys
+                          if 0 <= a * y + b < w]
+                if len(sample) >= 6:
+                    lanes.append(LaneLine(sample, np.poly1d([a, b]), resid, side))
+                remaining = remaining[~best_inl]
         return lanes

@@ -47,14 +47,15 @@ COCO_CLASSES = [
     "toothbrush",
 ]
 
-# COCO 标准索引：9=traffic light（交通信号灯），11=stop sign（停止标志）
-# （注意：8=boat，10=fire hydrant，均非目标类别）
-TARGET_CLASSES = [0, 1, 2, 3, 5, 7, 9, 11]  # person,bicycle,car,motorcycle,bus,truck,traffic light,stop sign
+# COCO 标准索引：9=traffic light，10=fire hydrant，11=stop sign，
+# 12=parking meter，13=bench（10/12/13 归入路侧设施）
+TARGET_CLASSES = [0, 1, 2, 3, 5, 7, 9, 10, 11, 12, 13]
 
 # 输出要素的中文类别名（用于导出属性）
 CLASS_CN = {
     0: "行人", 1: "自行车", 2: "小汽车", 3: "摩托车", 5: "公交车",
-    7: "卡车", 9: "交通信号灯", 11: "停止标志",
+    7: "卡车", 9: "交通信号灯", 10: "路侧设施", 11: "交通标志",
+    12: "路侧设施", 13: "路侧设施",
 }
 
 # 变化检测要素（v0.1 时序对比关注的类别）
@@ -64,9 +65,10 @@ CHANGE_TRACKED_CLASSES = [2, 3, 5, 7, 9, 11]  # 车辆类 + 信号灯 + 停止�
 @dataclass
 class PipelineConfig:
     detector_model: Path = MODELS_DIR / "yolo11n.onnx"
-    imgsz: int = 640
-    conf_threshold: float = 0.35
-    iou_threshold: float = 0.45
+    # 动态尺寸导出的 ONNX：1280 显著提升小目标（信号灯/标志）召回，CPU 单图约 0.15s
+    imgsz: int = 1280
+    conf_threshold: float = 0.20
+    iou_threshold: float = 0.50
     target_classes: list[int] = field(default_factory=lambda: list(TARGET_CLASSES))
     # 鱼眼内参（7360x4912）；cx/cy 为真实尺寸一半，k1/k2 为初值，可在配置中微调
     fisheye: dict = field(default_factory=lambda: dict(
