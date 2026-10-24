@@ -6,14 +6,16 @@
 <title>AI Vision Tool</title>
 <style>
   :root {
-    --primary: #3370FF; --primary-hover: #2860E1; --primary-light: #EAF0FF;
+    --primary: #3370FF; --primary-hover: #2B5CE6; --primary-light: #EAF0FF;
+    --violet: #7C5CFF; --violet-bg: #F0EDFF;
+    --teal: #00A8A0; --teal-bg: #E4F7F5;
+    --amber: #F59E0B; --amber-bg: #FEF4E6;
     --text-1: #1D2129; --text-2: #4E5969; --text-3: #86909C;
     --border: #E5E6EB; --border-strong: #C9CDD4;
-    --bg: #F2F3F5; --card: #FFFFFF;
+    --bg: #F4F5F7; --card: #FFFFFF;
     --success: #00B42A; --success-bg: #E8FFEA;
     --danger: #F53F3F; --danger-bg: #FFECE8;
-    --running-bg: #EAF0FF;
-    --radius: 10px;
+    --shadow: 0 1px 3px rgba(31,35,41,.06), 0 4px 16px rgba(31,35,41,.05);
   }
   * { box-sizing: border-box; margin: 0; }
   html, body { height: 100%; }
@@ -22,64 +24,79 @@
          display: flex; flex-direction: column; }
 
   /* ── 顶栏 ── */
-  header { height: 56px; background: var(--card); border-bottom: 1px solid var(--border);
+  header { height: 54px; background: var(--card); border-bottom: 1px solid var(--border);
            display: flex; align-items: center; justify-content: space-between;
-           padding: 0 20px; flex-shrink: 0; }
+           padding: 0 20px; flex-shrink: 0; box-shadow: 0 1px 2px rgba(31,35,41,.03); }
   .brand { display: flex; align-items: center; gap: 10px; }
-  .brand svg { width: 30px; height: 30px; border-radius: 7px; }
-  .brand .name { font-size: 15px; font-weight: 600; }
-  .brand .ver { font-size: 11px; color: var(--text-3); margin-left: 6px; font-weight: 400; }
-  .model { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+  .brand svg { width: 32px; height: 32px; border-radius: 8px; box-shadow: 0 2px 6px rgba(28,63,124,.35); }
+  .brand .name { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+  .brand .ver { font-size: 11px; color: #fff; background: linear-gradient(135deg,#4F7DFF,#7C5CFF);
+                padding: 1px 7px; border-radius: 10px; margin-left: 8px; font-weight: 600; }
+  .model { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2);
+           background: var(--bg); padding: 5px 12px; border-radius: 20px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
-  .dot.ok { background: var(--success); }
-  .dot.no { background: var(--danger); }
+  .dot.ok { background: var(--success); box-shadow: 0 0 0 3px rgba(0,180,42,.15); }
+  .dot.no { background: var(--danger); box-shadow: 0 0 0 3px rgba(245,63,63,.15); }
 
-  /* ── 主体双栏 ── */
-  main { flex: 1; overflow: auto; padding: 16px 20px;
-         display: grid; grid-template-columns: 420px 1fr; gap: 16px; align-items: start; }
-  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  /* ── 主体：上下布局 ── */
+  main { flex: 1; overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; }
 
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-          padding: 18px 20px; }
-  .card-title { font-size: 14px; font-weight: 600; margin-bottom: 14px;
-                display: flex; align-items: center; justify-content: space-between; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+          padding: 16px 20px; box-shadow: var(--shadow); }
+  .card-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .ticon { width: 24px; height: 24px; border-radius: 7px; display: inline-flex;
+           align-items: center; justify-content: center; flex-shrink: 0; }
+  .ticon svg { width: 14px; height: 14px; }
+  .ticon.blue { background: linear-gradient(135deg,#4F7DFF,#3370FF); color: #fff; }
+  .ticon.violet { background: linear-gradient(135deg,#9B7BFF,#7C5CFF); color: #fff; }
+  .ticon.dark { background: linear-gradient(135deg,#3A3F4B,#17191C); color: #fff; }
+  .ticon.teal { background: linear-gradient(135deg,#1FC7BC,#00A8A0); color: #fff; }
+  .card-title .spacer { flex: 1; }
 
-  label { display: block; font-size: 13px; color: var(--text-2); margin: 12px 0 6px; }
-  label:first-of-type { margin-top: 0; }
-  input[type=text], input[type=number] { width: 100%; height: 34px; padding: 0 10px;
+  /* ── 配置区 ── */
+  .cfg-grid { display: flex; gap: 14px; margin-top: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .cfg-field { display: flex; flex-direction: column; }
+  .cfg-field.w1 { flex: 1.3; min-width: 260px; }
+  .cfg-field.w2 { flex: 1.3; min-width: 260px; }
+  .cfg-field.w3 { width: 120px; }
+  .cfg-field label { font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+  input[type=text], input[type=number] { width: 100%; height: 36px; padding: 0 10px;
          border: 1px solid var(--border-strong); border-radius: 8px; font-size: 13px;
-         color: var(--text-1); outline: none; transition: border-color .15s, box-shadow .15s; }
+         color: var(--text-1); outline: none; transition: border-color .15s, box-shadow .15s;
+         background: var(--card); }
   input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(51,112,255,.12); }
   input::placeholder { color: var(--text-3); }
-
   .path-row { display: flex; gap: 8px; }
   .path-row input { flex: 1; min-width: 0; }
 
   button { border: 0; border-radius: 8px; font-size: 13px; cursor: pointer;
-           font-family: inherit; transition: background .15s, opacity .15s; }
+           font-family: inherit; transition: background .15s, box-shadow .15s, opacity .15s; }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  .primary { background: var(--primary); color: #fff; height: 36px; padding: 0 18px; }
-  .primary:hover:not(:disabled) { background: var(--primary-hover); }
-  .primary.big { width: 100%; height: 40px; font-size: 14px; font-weight: 600; margin-top: 16px; }
+  .primary { background: linear-gradient(135deg,#4F7DFF,#2B5CE6); color: #fff; height: 36px;
+             padding: 0 20px; font-weight: 600; box-shadow: 0 2px 8px rgba(43,92,230,.30); }
+  .primary:hover:not(:disabled) { background: linear-gradient(135deg,#3D6EFF,#234FD1); }
+  .primary.big { height: 38px; font-size: 14px; }
   .ghost { background: var(--card); color: var(--primary); border: 1px solid var(--border-strong);
-           height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+           height: 36px; padding: 0 12px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
   .ghost:hover:not(:disabled) { background: var(--primary-light); border-color: var(--primary); }
-  .ghost.sq { width: 34px; padding: 0; justify-content: center; }
-  .ghost svg { width: 14px; height: 14px; }
-
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .checks { display: flex; gap: 20px; margin-top: 14px; }
-  .check { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; color: var(--text-1); }
-  .check input { accent-color: var(--primary); }
-
+  .ghost.sq { width: 36px; padding: 0; justify-content: center; }
+  .ghost svg { width: 15px; height: 15px; }
+  .checks { display: flex; gap: 16px; align-items: center; height: 36px; }
+  .check { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-1);
+           font-size: 13px; margin: 0; }
+  .check input { accent-color: var(--primary); width: 15px; height: 15px; }
   .hint { font-size: 12px; color: var(--text-3); margin-top: 10px; line-height: 1.6; word-break: break-all; }
   .hint.ok { color: var(--success); }
   .hint.err { color: var(--danger); }
 
+  /* ── 下区双栏 ── */
+  .bottom { display: grid; grid-template-columns: minmax(400px, 470px) 1fr; gap: 14px; align-items: start; }
+  .right-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
   /* ── 状态徽标 ── */
-  .chip { font-size: 12px; padding: 2px 10px; border-radius: 20px; font-weight: 400; }
+  .chip { font-size: 12px; padding: 3px 12px; border-radius: 20px; font-weight: 600; }
   .chip.idle { background: var(--bg); color: var(--text-3); }
-  .chip.run { background: var(--running-bg); color: var(--primary); }
+  .chip.run { background: var(--primary-light); color: var(--primary); }
   .chip.run::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
                       background: var(--primary); margin-right: 5px; vertical-align: 1px;
                       animation: pulse 1.2s ease-in-out infinite; }
@@ -87,39 +104,80 @@
   .chip.fail { background: var(--danger-bg); color: var(--danger); }
   @keyframes pulse { 50% { opacity: .25; } }
 
-  /* ── 空状态 ── */
-  .empty { text-align: center; padding: 46px 0 34px; color: var(--text-3); }
-  .empty svg { width: 44px; height: 44px; opacity: .4; margin-bottom: 12px; }
-  .empty p { font-size: 13px; }
-
   /* ── 进度 ── */
-  .pct-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-  .pct { font-size: 34px; font-weight: 700; letter-spacing: -.5px; }
-  .pct small { font-size: 15px; font-weight: 400; color: var(--text-3); }
-  .bar { height: 8px; background: var(--bg); border-radius: 6px; overflow: hidden; }
-  .bar > div { height: 100%; width: 0; background: var(--primary); border-radius: 6px;
-               transition: width .25s ease; }
-  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 16px; }
-  .meta .k { font-size: 12px; color: var(--text-3); margin-bottom: 3px; }
-  .meta .v { font-size: 13px; color: var(--text-1); word-break: break-all; }
-  .error-box { margin-top: 14px; background: var(--danger-bg); color: var(--danger);
-               border-radius: 8px; padding: 10px 12px; font-size: 13px; word-break: break-all; }
+  .pct-row { display: flex; align-items: baseline; justify-content: space-between; margin: 14px 0 8px; }
+  .pct { font-size: 36px; font-weight: 800; letter-spacing: -1px;
+         background: linear-gradient(135deg,#3370FF,#7C5CFF);
+         -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .pct small { font-size: 16px; -webkit-text-fill-color: var(--text-3); }
+  .bar { height: 10px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; border-radius: 6px; transition: width .25s ease;
+               background: linear-gradient(90deg,#3370FF,#7C5CFF); position: relative; }
+  .bar > div::after { content: ""; position: absolute; inset: 0;
+               background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+               animation: shine 1.6s linear infinite; }
+  @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+  .tile { border-radius: 10px; padding: 10px 12px; }
+  .tile .k { font-size: 11px; color: var(--text-3); margin-bottom: 3px; }
+  .tile .v { font-size: 19px; font-weight: 700; }
+  .tile.total { background: var(--primary-light); } .tile.total .v { color: var(--primary); }
+  .tile.ok { background: var(--success-bg); } .tile.ok .v { color: var(--success); }
+  .tile.bad { background: var(--danger-bg); } .tile.bad .v { color: var(--danger); }
+  .tile.time { background: var(--amber-bg); } .tile.time .v { color: #D97706; }
+
+  /* ── 文件队列 ── */
+  .files-head { display: flex; align-items: center; justify-content: space-between;
+                margin: 16px 0 8px; font-size: 12px; color: var(--text-3); }
+  .file-list { max-height: 330px; overflow: auto; border: 1px solid var(--border);
+               border-radius: 10px; }
+  .frow { display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+          border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .frow:last-child { border-bottom: 0; }
+  .frow:hover { background: #FAFBFC; }
+  .frow .fic { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .frow .fic svg { width: 15px; height: 15px; }
+  .fic.pending { color: var(--border-strong); }
+  .fic.done { color: var(--success); }
+  .fic.failed { color: var(--danger); }
+  .fic.running { color: var(--primary); }
+  .spinner { width: 13px; height: 13px; border: 2px solid var(--primary-light);
+             border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fname { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+           color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fmeta { color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+  .ftag { font-size: 11px; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+  .ftag.pending { background: var(--bg); color: var(--text-3); }
+  .ftag.done { background: var(--success-bg); color: var(--success); }
+  .ftag.failed { background: var(--danger-bg); color: var(--danger); }
+  .ftag.running { background: var(--primary-light); color: var(--primary); }
 
   /* ── 日志 ── */
   .log { background: #17191C; color: #C9D4E3; font-family: ui-monospace, Menlo, monospace;
-         font-size: 12px; line-height: 1.7; height: 220px; overflow: auto; padding: 12px 14px;
-         border-radius: 8px; white-space: pre-wrap; word-break: break-all; }
+         font-size: 12px; line-height: 1.7; height: 190px; overflow: auto; padding: 12px 14px;
+         border-radius: 10px; white-space: pre-wrap; word-break: break-all; }
   .log:empty::before { content: "日志将在此处输出"; color: #5B6470; }
 
-  /* ── 结果表 ── */
+  /* ── 结果 ── */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; }
   th { color: var(--text-3); font-weight: 500; font-size: 12px; background: #FAFBFC; }
   tr:last-child td { border-bottom: 0; }
+  .num { font-weight: 700; color: var(--primary); }
+
+  /* ── 空状态 ── */
+  .empty { text-align: center; padding: 30px 0 22px; color: var(--text-3); }
+  .empty svg { width: 40px; height: 40px; opacity: .35; margin-bottom: 10px; }
+  .empty p { font-size: 13px; }
+
+  .error-box { margin-top: 12px; background: var(--danger-bg); color: var(--danger);
+               border-radius: 8px; padding: 10px 12px; font-size: 13px; word-break: break-all; }
 
   /* ── Toast ── */
-  #toast { position: fixed; top: 68px; left: 50%; transform: translateX(-50%) translateY(-8px);
-           background: #FFFFFF; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(0,0,0,.10);
+  #toast { position: fixed; top: 64px; left: 50%; transform: translateX(-50%) translateY(-8px);
+           background: #FFFFFF; border: 1px solid var(--border); box-shadow: 0 6px 24px rgba(0,0,0,.12);
            border-radius: 8px; padding: 9px 16px; font-size: 13px; opacity: 0;
            pointer-events: none; transition: opacity .2s, transform .2s; max-width: 70%; z-index: 99; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -139,88 +197,106 @@
       <path d="M436 612 L464 384 L560 384 L588 612 Z" fill="#1B3D7C"/>
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
-    <div><span class="name">众源感知自动解译工具</span><span class="ver">v0.2</span></div>
+    <span class="name">众源感知自动解译工具</span><span class="ver">v0.2.1</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
 
 <main>
-  <!-- 左栏：配置 -->
-  <div class="col">
-    <div class="card">
-      <div class="card-title">解译配置</div>
-
-      <label>数据源目录</label>
-      <div class="path-row">
-        <input type="text" id="dataDir" placeholder="包含 照片/ 与 轨迹/ 的目录" />
-        <button class="ghost" id="browseData" type="button">选择</button>
-      </div>
-
-      <label>输出目录</label>
-      <div class="path-row">
-        <input type="text" id="outDir" placeholder="解译结果保存位置" />
-        <button class="ghost" id="browseOut" type="button">选择</button>
-        <button class="ghost sq" id="openOut" type="button" title="打开输出目录">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
-        </button>
-      </div>
-
-      <div class="grid2">
-        <div>
-          <label>置信度阈值</label>
-          <input type="number" id="conf" value="0.35" step="0.05" min="0.1" max="0.9" />
-        </div>
-        <div>
-          <label>最大影像数</label>
-          <input type="number" id="maxImg" value="0" min="0" />
+  <!-- 上：解译配置 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+      解译配置
+      <span class="spacer"></span>
+      <button class="primary big" id="runBtn" disabled>开始解译</button>
+    </div>
+    <div class="cfg-grid">
+      <div class="cfg-field w1">
+        <label>数据源目录</label>
+        <div class="path-row">
+          <input type="text" id="dataDir" placeholder="包含按期次配对的 照片/ 与 轨迹/" />
+          <button class="ghost" id="browseData" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
         </div>
       </div>
-
+      <div class="cfg-field w2">
+        <label>输出目录</label>
+        <div class="path-row">
+          <input type="text" id="outDir" placeholder="解译结果保存位置" />
+          <button class="ghost" id="browseOut" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
+          <button class="ghost sq" id="openOut" type="button" title="打开输出目录">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="cfg-field w3">
+        <label>置信度阈值</label>
+        <input type="number" id="conf" value="0.35" step="0.05" min="0.1" max="0.9" />
+      </div>
+      <div class="cfg-field w3">
+        <label>最大影像数</label>
+        <input type="number" id="maxImg" value="0" min="0" />
+      </div>
       <div class="checks">
         <label class="check"><input type="checkbox" id="fisheye" checked />鱼眼矫正</label>
         <label class="check"><input type="checkbox" id="gdb" checked />导出 GDB</label>
       </div>
-
-      <button id="runBtn" class="primary big" disabled>开始解译</button>
-      <div id="scanInfo" class="hint">数据源目录需包含按期次同名配对的 照片/ 与 轨迹/ 子目录</div>
     </div>
+    <div id="scanInfo" class="hint">数据源目录需包含按期次同名配对的 照片/ 与 轨迹/ 子目录</div>
   </div>
 
-  <!-- 右栏：执行 -->
-  <div class="col">
+  <!-- 下：左进度 / 右日志+结果 -->
+  <div class="bottom">
     <div class="card">
-      <div class="card-title">执行状态 <span id="stateChip" class="chip idle">待机</span></div>
+      <div class="card-title">
+        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+        解译进度
+        <span class="spacer"></span>
+        <span id="stateChip" class="chip idle">待机</span>
+      </div>
 
       <div id="emptyView" class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <p>选择数据源与输出目录后开始解译</p>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <p>开始解译后，此处展示整体进度与逐文件状态</p>
       </div>
 
       <div id="runView" style="display:none">
         <div class="pct-row"><span class="pct" id="pct">0<small>%</small></span></div>
         <div class="bar"><div id="bar"></div></div>
-        <div class="meta">
-          <div><div class="k">处理进度</div><div class="v" id="mCount">—</div></div>
-          <div><div class="k">已用时</div><div class="v" id="mElapsed">—</div></div>
-          <div style="grid-column:1/-1"><div class="k">当前文件</div><div class="v" id="mFile">—</div></div>
+        <div class="tiles">
+          <div class="tile total"><div class="k">影像总数</div><div class="v" id="tTotal">0</div></div>
+          <div class="tile ok"><div class="k">成功</div><div class="v" id="tOk">0</div></div>
+          <div class="tile bad"><div class="k">失败</div><div class="v" id="tBad">0</div></div>
+          <div class="tile time"><div class="k">已用时</div><div class="v" id="tTime">00:00</div></div>
         </div>
+        <div class="files-head"><span>文件队列</span><span id="fCount"></span></div>
+        <div id="fileList" class="file-list"></div>
         <div id="errBox" class="error-box" style="display:none"></div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">运行日志</div>
-      <div id="log" class="log"></div>
-    </div>
-
-    <div class="card" id="resultCard" style="display:none">
-      <div class="card-title">解译结果
-        <button class="ghost" id="openOut2" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
-          打开输出目录
-        </button>
+    <div class="right-col">
+      <div class="card">
+        <div class="card-title">
+          <span class="ticon dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></span>
+          运行日志
+        </div>
+        <div id="log" class="log"></div>
       </div>
-      <div id="resultBody"></div>
+
+      <div class="card" id="resultCard" style="display:none">
+        <div class="card-title">
+          <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          解译结果
+          <span class="spacer"></span>
+          <button class="ghost" id="openOut2" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M14 14l3-3 3 3"/><path d="M17 11v6"/></svg>
+            打开输出目录</button>
+        </div>
+        <div id="resultBody"></div>
+      </div>
     </div>
   </div>
 </main>
@@ -229,26 +305,28 @@
 
 <script>
 /* ---------- 基础设施 ---------- */
-function call(name, ...args) {
-  return window.pywebview.api[name](...args);
-}
+function call(name, ...args) { return window.pywebview.api[name](...args); }
+function el(id) { return document.getElementById(id); }
 let toastTimer = null;
 function toast(msg, isErr) {
-  const t = document.getElementById('toast');
+  const t = el('toast');
   t.textContent = msg;
   t.className = isErr ? 'err show' : 'show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
-function el(id) { return document.getElementById(id); }
 function fmtElapsed(ms) {
   const s = Math.floor(ms / 1000);
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 }
+const ICONS = {
+  done: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+  failed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  pending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8"/></svg>',
+};
 
 /* ---------- 状态 ---------- */
-let runStartTs = 0;
-let elapsedTimer = null;
+let runStartTs = 0, elapsedTimer = null;
 const CHIP = { idle: ['idle', '待机'], run: ['run', '解译中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
 function setChip(state) {
   const [cls, text] = CHIP[state] || CHIP.idle;
@@ -271,10 +349,7 @@ window.addEventListener('pywebviewready', async () => {
 async function pickDir(inputId, title) {
   try {
     const r = await call('pick_folder', title);
-    if (r && r.ok && r.path) {
-      el(inputId).value = r.path;
-      return r.path;
-    }
+    if (r && r.ok && r.path) { el(inputId).value = r.path; return r.path; }
     if (r && r.error) toast('无法打开目录选择器：' + r.error, true);
   } catch (e) { toast('无法打开目录选择器：' + e, true); }
   return null;
@@ -285,9 +360,7 @@ async function openOutDir() {
   const r = await call('open_folder', p);
   if (!r.ok) toast(r.error || '打开失败', true);
 }
-el('browseData').onclick = async () => {
-  if (await pickDir('dataDir', '选择数据源目录')) scanDir();
-};
+el('browseData').onclick = async () => { if (await pickDir('dataDir', '选择数据源目录')) scanDir(); };
 el('browseOut').onclick = () => pickDir('outDir', '选择输出目录');
 el('openOut').onclick = openOutDir;
 el('openOut2').onclick = openOutDir;
@@ -298,16 +371,14 @@ async function scanDir() {
   const d = el('dataDir').value.trim();
   const info = el('scanInfo');
   if (!d) { info.textContent = '请选择数据源目录'; info.className = 'hint'; return; }
-  if (lastScan.dir === d && lastScan.matched >= 0) return;   // 已扫过，不重复请求
+  if (lastScan.dir === d && lastScan.matched >= 0) return;
   info.textContent = '正在扫描数据源…';
   info.className = 'hint';
   const r = await call('scan_directory', d);
   lastScan = { dir: d, matched: r.matched };
   if (r.error) {
-    info.textContent = '扫描失败：' + r.error;
-    info.className = 'hint err';
-    el('runBtn').disabled = true;
-    return;
+    info.textContent = '扫描失败：' + r.error; info.className = 'hint err';
+    el('runBtn').disabled = true; return;
   }
   info.textContent = `影像 ${r.images} · 位姿 ${r.poses} · 可配对 ${r.matched}`;
   info.className = 'hint' + (r.matched > 0 ? ' ok' : '');
@@ -337,13 +408,12 @@ el('runBtn').onclick = async () => {
   el('resultCard').style.display = 'none';
   el('errBox').style.display = 'none';
   el('runBtn').disabled = true;
-  el('runBtn').textContent = '解译中…';
   clearInterval(elapsedTimer);
-  elapsedTimer = setInterval(() => { el('mElapsed').textContent = fmtElapsed(Date.now() - runStartTs); }, 500);
+  elapsedTimer = setInterval(() => { el('tTime').textContent = fmtElapsed(Date.now() - runStartTs); }, 500);
   poll();
 };
 
-/* ---------- 轮询进度 ---------- */
+/* ---------- 轮询 ---------- */
 function poll() {
   const timer = setInterval(async () => {
     let s;
@@ -351,18 +421,21 @@ function poll() {
     const pct = s.total ? Math.round(s.progress / s.total * 100) : 0;
     el('pct').innerHTML = pct + '<small>%</small>';
     el('bar').style.width = pct + '%';
-    el('mCount').textContent = s.total ? `${s.progress} / ${s.total}` : '—';
-    el('mFile').textContent = s.current || '—';
+    el('tTotal').textContent = s.total || 0;
+    const okN = (s.files || []).filter(f => f.status === 'done').length;
+    const badN = (s.files || []).filter(f => f.status === 'failed').length;
+    el('tOk').textContent = okN;
+    el('tBad').textContent = badN;
+    el('fCount').textContent = s.total ? `${okN + badN} / ${s.total}` : '';
     const log = el('log');
     log.textContent = s.logs.join('\n');
     log.scrollTop = log.scrollHeight;
+    renderFiles(s.files || [], s.current);
 
     if (s.state === 'done' || s.state === 'error') {
-      clearInterval(timer);
-      clearInterval(elapsedTimer);
-      el('mElapsed').textContent = fmtElapsed(Date.now() - runStartTs);
+      clearInterval(timer); clearInterval(elapsedTimer);
+      el('tTime').textContent = fmtElapsed(Date.now() - runStartTs);
       el('runBtn').disabled = false;
-      el('runBtn').textContent = '开始解译';
       if (s.state === 'error') {
         setChip('fail');
         el('errBox').style.display = 'block';
@@ -377,13 +450,34 @@ function poll() {
   }, 400);
 }
 
-/* ---------- 结果展示 ---------- */
+/* ---------- 文件队列 ---------- */
+let filesRendered = 0;
+function renderFiles(files, current) {
+  const box = el('fileList');
+  if (!files.length) return;
+  const keepScroll = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  let html = '';
+  for (const f of files) {
+    const running = f.status === 'pending' && f.name === current;
+    const cls = running ? 'running' : f.status;
+    let ic, tag;
+    if (f.status === 'done') { ic = ICONS.done; tag = '<span class="ftag done">完成</span>'; }
+    else if (f.status === 'failed') { ic = ICONS.failed; tag = '<span class="ftag failed">失败</span>'; }
+    else if (running) { ic = '<span class="spinner"></span>'; tag = '<span class="ftag running">处理中</span>'; }
+    else { ic = ICONS.pending; tag = '<span class="ftag pending">等待</span>'; }
+    const meta = f.status === 'done' ? `目标 ${f.det} · 车道线 ${f.lane}` : '';
+    html += `<div class="frow"><span class="fic ${cls}">${ic}</span><span class="fname">${f.name}</span><span class="fmeta">${meta}</span>${tag}</div>`;
+  }
+  box.innerHTML = html;
+  if (keepScroll) box.scrollTop = box.scrollHeight;
+}
+
+/* ---------- 结果 ---------- */
 function showResult(r) {
-  const card = el('resultCard');
-  card.style.display = 'block';
+  el('resultCard').style.display = 'block';
   let html = '<table><tr><th>期次</th><th>目标数</th><th>车道线数</th></tr>';
   for (const [k, v] of Object.entries(r.per_session)) {
-    html += `<tr><td>${k}</td><td>${v.det}</td><td>${v.lane}</td></tr>`;
+    html += `<tr><td>${k}</td><td class="num">${v.det}</td><td class="num">${v.lane}</td></tr>`;
   }
   html += '</table>';
   html += `<div class="hint">时序变化要素 ${r.change_count} 条</div>`;

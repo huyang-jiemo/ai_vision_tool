@@ -23,6 +23,7 @@ class RunState:
         self.logs = []
         self.result = None
         self.error = None
+        self.files = []            # 逐文件状态 [{name,status,det,lane}]
 
 
 class Api:
@@ -108,6 +109,7 @@ class Api:
                 "logs": self.state.logs[-200:],
                 "result": self.state.result,
                 "error": self.state.error,
+                "files": self.state.files,
             }
 
     def preview_image(self, path):
@@ -148,14 +150,32 @@ class Api:
             with self.state.lock:
                 self.state.logs.append(msg)
 
+        # 预填逐文件状态表（pending → done/failed）
+        try:
+            from pipeline.data_loader import DataProject
+            matched = DataProject.load(data_dir).matched
+            if max_images:
+                matched = matched[:max_images]
+            files = [{"name": rec.filename, "status": "pending", "det": 0, "lane": 0}
+                     for rec, _ in matched]
+        except Exception:
+            files = []
+        with self.state.lock:
+            self.state.files = files
+
         pipe = Pipeline(self.cfg, det)
 
-        def cb(i, total, fname, nd, nl):
+        def cb(i, total, fname, nd, nl, ok=True):
             with self.state.lock:
                 self.state.progress = i
                 self.state.total = total
                 self.state.current = fname
                 self.state.logs.append(f"[{i}/{total}] {fname} 目标:{nd} 车道线:{nl}")
+                for f in self.state.files:
+                    if f["name"] == fname and f["status"] == "pending":
+                        f["status"] = "done" if ok else "failed"
+                        f["det"], f["lane"] = nd, nl
+                        break
 
         try:
             res = pipe.process_project(

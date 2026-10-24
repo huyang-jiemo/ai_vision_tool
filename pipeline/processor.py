@@ -140,11 +140,11 @@ class Pipeline:
                 cv2.imwrite(str(out / "preview" / f"{im_rec.session}__{im_rec.filename}"), prev)
 
                 if progress_cb:
-                    progress_cb(i + 1, total, im_rec.filename, len(pts_feat), len(lane_feat))
+                    progress_cb(i + 1, total, im_rec.filename, len(pts_feat), len(lane_feat), True)
             except Exception as e:
                 self.errors.append(f"{im_rec.filename}: {e}")
                 if progress_cb:
-                    progress_cb(i + 1, total, im_rec.filename, 0, 0)
+                    progress_cb(i + 1, total, im_rec.filename, 0, 0, False)
 
         # 导出每期次
         for sname, pts in session_points.items():

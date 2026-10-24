@@ -15,13 +15,13 @@ def resource_path(rel):
 def main():
     api = Api()
     webview.create_window(
-        title="AI Vision Tool - 众源感知自动解译工具",
+        title="",   # 不显示原生标题文字
         url=resource_path("web/index.html"),
         js_api=api,
-        width=1280,
-        height=860,
-        min_size=(960, 640),
-        background_color="#f7f8fa",
+        width=1360,
+        height=900,
+        min_size=(1080, 700),
+        background_color="#F2F3F5",
     )
     webview.start(debug=("--debug" in sys.argv),
                   gui="cocoa" if sys.platform == "darwin" else None)
