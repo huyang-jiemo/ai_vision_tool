@@ -21,13 +21,7 @@ a = Analysis(
     excludes=[
         "torch", "torchvision", "ultralytics", "matplotlib",
         "PyQt5", "PySide6", "notebook", "IPython",
-        # FileGDB 导出依赖 GDAL/pyogrio/geopandas，PyInstaller 打包跨平台极不稳定，
-        # 且 exporter.py 中 GDB 导出已用 try/except 包裹、失败可降级（SHP 仍可用），
-        # 因此从冻结包中剔除，保证安装包可稳定构建与运行；FileGDB 作为已知限制后续再补。
-        "geopandas", "pyogrio",
-        # pandas/lxml/openpyxl 仅被 GDB 导出路径的 _gdf() 懒加载使用，随 geopandas 一起剔除，
-        # 可减小安装包约 60-80MB 且不影响 SHP 导出与主流程。
-        "pandas",
+        "lxml", "openpyxl",
     ],
 )
 
@@ -35,11 +29,28 @@ a = Analysis(
 # 会在 Analysis 阶段自动收集其二进制（.dylib/.so/.dll）与子模块，无需手动 collect_all。
 # 手动 collect_all 会把 webview/lib/runtimes（目录）等误判为二进制导致报错，
 # 因此这里仅补充 hiddenimports 以覆盖动态后端/子模块，二进制交给内置 hook。
-for pkg in ["webview", "shapely", "onnxruntime", "cv2", "numpy"]:
+for pkg in ["webview", "shapely", "onnxruntime", "cv2", "numpy",
+            "geopandas", "pyogrio", "pandas", "pyproj"]:
     try:
         a.hiddenimports += collect_submodules(pkg)
     except Exception:
         pass
+
+# pyogrio 自带 GDAL 数据（gdal_data/proj_data），OpenFileGDB 驱动与坐标系定义依赖它们；
+# 官方 hooks-contrib 尚无 hook-pyogrio。注意：本版本 collect_data_files 对 pyogrio 子目录
+# 的 dest 计算有缺陷（所有文件挤到同一目标路径），因此手动遍历收集，保留子目录结构。
+try:
+    import pyogrio as _pyogrio
+    _pkgdir = os.path.dirname(_pyogrio.__file__)
+    for _sub in ("gdal_data", "proj_data"):
+        _root = os.path.join(_pkgdir, _sub)
+        for _dp, _dns, _fns in os.walk(_root):
+            for _fn in _fns:
+                _src = os.path.join(_dp, _fn)
+                _dest = os.path.join("pyogrio", os.path.relpath(_src, _pkgdir))
+                a.datas.append((_dest, _src, "DATA"))
+except Exception:
+    pass
 
 # 本项目 pipeline 包全量子模块强制收集：防止个别模块经动态导入
 # （__import__/importlib）被 PyInstaller 静态分析漏掉

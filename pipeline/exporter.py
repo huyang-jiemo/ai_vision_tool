@@ -63,6 +63,10 @@ def _gdf(geoms, fields: dict):
     return gpd.GeoDataFrame(df, geometry=geoms, crs=WUHAN_CGCS2000_GK_WKT)
 
 
+# 导出过程中的非致命告警，供上层（processor/api）收集并展示到运行日志
+WARNINGS = []
+
+
 def _export_points_gdb(gdb_path, layer, features):
     geoms = [Point(f["x"], f["y"]) for f in features]
     fields = {
@@ -89,23 +93,29 @@ def _export_lines_gdb(gdb_path, layer, features):
 
 def export_points_gdb(gdb_path, layer, features):
     try:
-        if Point is None or not features:
+        if Point is None:
+            WARNINGS.append("GDB 导出不可用：缺少 shapely，仅输出 SHP")
             return False
+        if not features:
+            return True
         _export_points_gdb(gdb_path, layer, features)
         return True
     except Exception as e:
-        print(f"[warn] GDB 点层导出失败（SHP 仍可用）: {e}")
+        WARNINGS.append(f"GDB 点层导出失败（{layer}，SHP 仍可用）: {e}")
         return False
 
 
 def export_lines_gdb(gdb_path, layer, features):
     try:
-        if LineString is None or not features:
+        if LineString is None:
+            WARNINGS.append("GDB 导出不可用：缺少 shapely，仅输出 SHP")
             return False
+        if not features:
+            return True
         _export_lines_gdb(gdb_path, layer, features)
         return True
     except Exception as e:
-        print(f"[warn] GDB 线层导出失败（SHP 仍可用）: {e}")
+        WARNINGS.append(f"GDB 线层导出失败（{layer}，SHP 仍可用）: {e}")
         return False
 
 
@@ -116,4 +126,4 @@ def export_summary_gdb(gdb_path, layer, center_x, center_y, counts: dict):
              {"TOTAL": [int(sum(counts.values()))], "N_SESS": [len(counts)]}
              ).to_file(str(gdb_path), layer=layer, driver="OpenFileGDB")
     except Exception as e:
-        print(f"[warn] 统计层导出失败: {e}")
+        WARNINGS.append(f"统计层导出失败: {e}")

@@ -158,8 +158,12 @@ class Pipeline:
                 gdb = out / f"result_{sname}.gdb"
                 gdb_ok = (export_points_gdb(gdb, "detections", pts) and
                           export_lines_gdb(gdb, "lanes", lanes))
+                if not gdb_ok:
+                    from .exporter import WARNINGS as _gdb_warn
+                    while _gdb_warn:
+                        self.errors.append(_gdb_warn.pop(0))
             per_session[sname] = {"det": len(pts), "lane": len(lanes),
-                                   "shp": str(sp), "gdb": str(gdb) if export_gdb else ""}
+                                   "shp": str(sp), "gdb": str(gdb) if (export_gdb and gdb_ok) else ""}
 
         # 时序变化（v0.1 必做）
         change_count = 0
@@ -175,10 +179,13 @@ class Pipeline:
                                             image=c.get("change_type", ""),
                                             dist=0.0, score=0.0) for c in changes])
                 if export_gdb:
-                    export_points_gdb(out / "result_change.gdb", "changes", [
+                    if not export_points_gdb(out / "result_change.gdb", "changes", [
                         dict(c, class_id=c.get("class_id", -1), class_cn=c.get("class_cn", ""),
                              session=f"{c['session_a']}->{c['session_b']}", image=c.get("change_type", ""),
-                             dist=0.0, score=0.0) for c in changes])
+                             dist=0.0, score=0.0) for c in changes]):
+                        from .exporter import WARNINGS as _gdb_warn
+                        while _gdb_warn:
+                            self.errors.append(_gdb_warn.pop(0))
                 change_path = str(cp)
 
         return PipelineResult(str(out), per_session, change_count, change_path, self.errors)
