@@ -3,7 +3,7 @@ import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 APP_NAME = "AI-Vision-Tool"
-ROOT = os.path.abspath(os.path.dirname(__file__))
+ROOT = SPECPATH  # PyInstaller 执行 spec 时不提供 __file__，用 SPECPATH（spec 所在目录）
 MODELS = os.path.join(ROOT, "models")
 
 a = Analysis(
