@@ -21,15 +21,22 @@ a = Analysis(
     ],
 )
 
-for pkg in ["webview", "pyogrio", "onnxruntime", "cv2", "numpy", "shapely", "geopandas"]:
+# 把第三方包的二进制与数据文件打进包内。
+# collect_all 返回：
+#   datas    -> 2 元组 (source, dest)
+#   binaries -> 2 元组 (source, dest_dir)
+# 必须规整成 PyInstaller TOC 要求的 3 元组 (dest, source, typecode)，
+# 否则 EXE 阶段的 normalize_toc 会因 “not enough values to unpack (expected 3, got 2)” 报错。
+# cv2 / numpy 有官方内置 hook 负责各自的 .dylibs/.so，故不在此手动 collect（避免其 datas 目录冲突）。
+for pkg in ["webview", "pyogrio", "onnxruntime", "shapely", "geopandas"]:
     try:
         datas, binaries, hiddenimports = collect_all(pkg)
-        for d in datas:                       # datas: (dest, src)
-            a.datas.append((d[0], d[1]))
-        for b in binaries:                    # 规整为 3 元组 (dest, src, typecode)
-            if len(b) == 2:
-                b = (b[0], b[1], "B")
-            a.binaries.append((b[0], b[1], b[2]))
+        for d in datas:                       # d = (source, dest)
+            if os.path.isdir(d[0]):           # 跳过 .dist-info 等目录，避免 IsADirectoryError
+                continue
+            a.datas.append((d[1], d[0], "DATA"))
+        for b in binaries:                    # b = (source, dest_dir)
+            a.binaries.append((b[1], b[0], "BINARY"))
         a.hiddenimports += hiddenimports
     except Exception:
         pass
