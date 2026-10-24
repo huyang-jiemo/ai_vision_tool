@@ -3,6 +3,7 @@
 
 # 模型与构建产物（模型由 CI 构建期生成，不入库）
 models/*.onnx
+*.pt
 
 # Python
 __pycache__/
