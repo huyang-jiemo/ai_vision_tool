@@ -154,7 +154,7 @@ class Api:
         try:
             os.makedirs(output_dir, exist_ok=True)
             ts = time.strftime("%Y%m%d_%H%M%S")
-            log_path = os.path.join(output_dir, f"解译日志_{ts}.log")
+            log_path = os.path.join(output_dir, f"{ts}.log")
             log_fh = open(log_path, "a", encoding="utf-8")
             log_fh.write(f"==== 众源感知自动解译 {ts} ====\n")
             log_fh.write(f"数据源: {data_dir}\n输出目录: {output_dir}\n"
@@ -188,7 +188,8 @@ class Api:
             matched = DataProject.load(data_dir).matched
             if max_images:
                 matched = matched[:max_images]
-            files = [{"name": rec.filename, "status": "pending", "det": 0, "lane": 0}
+            files = [{"name": rec.filename, "session": rec.session, "status": "pending",
+                      "det": 0, "lane": 0, "cats": {}}
                      for rec, _ in matched]
         except Exception:
             files = []
@@ -197,7 +198,7 @@ class Api:
 
         pipe = Pipeline(self.cfg, det)
 
-        def cb(i, total, fname, nd, nl, ok=True, cats=None):
+        def cb(i, total, fname, nd, nl, ok=True, cats=None, session=""):
             if ok:
                 detail = " ".join(f"{c}:{(cats or {}).get(c, 0)}"
                                   for c in BUSINESS_CATEGORIES)
@@ -209,9 +210,11 @@ class Api:
                 self.state.total = total
                 self.state.current = fname
                 for f in self.state.files:
-                    if f["name"] == fname and f["status"] == "pending":
+                    if (f["name"] == fname and f.get("session") == session
+                            and f["status"] == "pending"):
                         f["status"] = "done" if ok else "failed"
                         f["det"], f["lane"] = nd, nl
+                        f["cats"] = cats or {}
                         break
 
         try:

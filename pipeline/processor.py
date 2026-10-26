@@ -162,11 +162,12 @@ class Pipeline:
                         if c:
                             cats[c] = cats.get(c, 0) + 1
                     progress_cb(i + 1, total, im_rec.filename, len(pts_feat),
-                                len(lane_feat), True, cats)
+                                len(lane_feat), True, cats, im_rec.session)
             except Exception as e:
                 self.errors.append(f"{im_rec.filename}: {e}")
                 if progress_cb:
-                    progress_cb(i + 1, total, im_rec.filename, 0, 0, False, {})
+                    progress_cb(i + 1, total, im_rec.filename, 0, 0, False, {},
+                                im_rec.session)
 
         # 导出每批次（shp/ 与 gdb/ 分区）
         for sname, pts in session_points.items():
