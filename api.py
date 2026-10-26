@@ -153,13 +153,14 @@ class Api:
 
     # ---- 正射影像提取 ----
     def start_dom(self, tif_path, output_dir, stock_gdb=None, min_len=2.0,
-                  use_stock_clip=True):
+                  use_stock_clip=True, use_corridor=True):
         if self.dom_state.state == "running":
             return {"started": False, "error": "正射解译正在运行中"}
         if not tif_path or not os.path.isfile(tif_path):
             return {"started": False, "error": "正射影像文件不存在"}
         t = threading.Thread(target=self._run_dom,
-                             args=(tif_path, output_dir, stock_gdb, min_len, use_stock_clip),
+                             args=(tif_path, output_dir, stock_gdb, min_len,
+                                   use_stock_clip, use_corridor),
                              daemon=True)
         t.start()
         return {"started": True}
@@ -176,7 +177,8 @@ class Api:
                 "log_file": self.dom_state.log_file,
             }
 
-    def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip):
+    def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip,
+                 use_corridor=True):
         from pipeline.dom_extractor import DomExtractor
         st = self.dom_state
         with st.lock:
@@ -184,7 +186,8 @@ class Api:
             st.logs, st.result, st.error = [], None, None
         log_fh = self._open_job_log(st, output_dir, "正射影像提取",
                                     f"影像: {tif_path}\n输出: {output_dir}\n"
-                                    f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m")
+                                    f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m "
+                                    f"走廊约束: {use_corridor}")
         wlog = self._wlog(st, log_fh)
 
         def cb(i, total, msg):
@@ -196,7 +199,8 @@ class Api:
             stock = stock_gdb if (use_stock_clip and stock_gdb
                                   and os.path.exists(stock_gdb)) else None
             res = extractor.run(tif_path, output_dir, stock_gdb=stock,
-                                wlog=wlog, progress_cb=cb)
+                                wlog=wlog, progress_cb=cb,
+                                use_corridor=use_corridor and stock is not None)
             with st.lock:
                 st.state = "done"
                 st.result = res

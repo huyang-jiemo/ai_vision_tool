@@ -275,7 +275,7 @@
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
     <div class="tt"><span class="name">众源感知自动解译工具</span></div>
-    <span class="badge-ver">v0.4.0</span>
+    <span class="badge-ver">v0.4.1</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
@@ -435,6 +435,7 @@
         </div>
         <div class="checks">
           <label class="switch"><input type="checkbox" id="domClip" checked /><span class="track"></span>按存量范围裁剪</label>
+          <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="track"></span>仅提取存量道路走廊（±8m，建筑不提取）</label>
           <label class="switch"><input type="checkbox" id="domShp" checked /><span class="track"></span>同步导出 SHP</label>
         </div>
       </div>
@@ -798,7 +799,8 @@ el('domRunBtn').onclick = async () => {
   if (!tif) { toast('请选择正射影像 TIF 文件', 'err'); return; }
   if (!out) { toast('请选择输出目录', 'err'); return; }
   const r = await call('start_dom', tif, out, el('domStock').value.trim() || null,
-    parseFloat(el('domMinLen').value) || 2.0, el('domClip').checked);
+    parseFloat(el('domMinLen').value) || 2.0, el('domClip').checked,
+    el('domCorridor').checked);
   if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
   el('domRunBtn').disabled = true;
   domRunTs = Date.now();
