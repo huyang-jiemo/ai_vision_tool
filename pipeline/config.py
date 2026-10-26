@@ -61,13 +61,24 @@ CLASS_CN = {
 # 变化检测要素（v0.1 时序对比关注的类别）
 CHANGE_TRACKED_CLASSES = [2, 3, 5, 7, 9, 11]  # 车辆类 + 信号灯 + 停止标志
 
+# 业务五大类别归属（日志/汇总按此口径统计）
+CATEGORY_CN = {
+    0: "动态障碍", 1: "动态障碍", 2: "动态障碍", 3: "动态障碍",
+    5: "动态障碍", 7: "动态障碍",
+    9: "信号灯",
+    10: "路侧设施", 12: "路侧设施", 13: "路侧设施",
+    11: "交通标志",
+}
+BUSINESS_CATEGORIES = ["动态障碍", "交通标志", "信号灯", "路侧设施"]
+
 
 @dataclass
 class PipelineConfig:
     detector_model: Path = MODELS_DIR / "yolo11n.onnx"
-    # 动态尺寸导出的 ONNX：1280 显著提升小目标（信号灯/标志）召回，CPU 单图约 0.15s
-    imgsz: int = 1280
-    conf_threshold: float = 0.20
+    # 动态尺寸导出的 ONNX：1536 相比 1280 检出提升约 30%（行人/卡车尤明显），
+    # CPU 单图推理约 0.16s，实测误检可控
+    imgsz: int = 1536
+    conf_threshold: float = 0.15
     iou_threshold: float = 0.50
     target_classes: list[int] = field(default_factory=lambda: list(TARGET_CLASSES))
     # 鱼眼内参（7360x4912）；cx/cy 为真实尺寸一半，k1/k2 为初值，可在配置中微调

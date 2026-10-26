@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import CLASS_CN
+from .config import BUSINESS_CATEGORIES, CATEGORY_CN, CLASS_CN
 from .change_detector import detect_changes
 from .data_loader import DataProject
 from .exporter import (export_lines_gdb, export_lines_shp, export_points_gdb,
@@ -83,7 +83,10 @@ class Pipeline:
         use_fisheye = cfg.use_fisheye if use_fisheye is None else use_fisheye
         enable_change = cfg.enable_change_detection if enable_change is None else enable_change
         out = Path(output_dir)
+        # 输出三分区：preview 标注预览 / shp 矢量 / gdb 矢量地理数据库
         (out / "preview").mkdir(parents=True, exist_ok=True)
+        (out / "shp").mkdir(parents=True, exist_ok=True)
+        (out / "gdb").mkdir(parents=True, exist_ok=True)
         proj = DataProject.load(data_dir)
 
         matched = proj.matched
@@ -111,7 +114,7 @@ class Pipeline:
                     def _not_ego(d):
                         y1 = d.bbox[1]
                         cx = (d.bbox[0] + d.bbox[2]) / 2
-                        return not (y1 > 0.66 * H_w and 0.10 * W_w < cx < 0.90 * W_w)
+                        return not (y1 > 0.64 * H_w and 0.10 * W_w < cx < 0.90 * W_w)
                     dets = [d for d in dets if _not_ego(d)]
                 lanes = self.lane.detect(work)
 
@@ -153,31 +156,42 @@ class Pipeline:
                 cv2.imwrite(str(out / "preview" / f"{im_rec.session}__{im_rec.filename}"), prev)
 
                 if progress_cb:
-                    progress_cb(i + 1, total, im_rec.filename, len(pts_feat), len(lane_feat), True)
+                    cats = {}
+                    for p in pts_feat:
+                        c = CATEGORY_CN.get(p["class_id"])
+                        if c:
+                            cats[c] = cats.get(c, 0) + 1
+                    progress_cb(i + 1, total, im_rec.filename, len(pts_feat),
+                                len(lane_feat), True, cats)
             except Exception as e:
                 self.errors.append(f"{im_rec.filename}: {e}")
                 if progress_cb:
-                    progress_cb(i + 1, total, im_rec.filename, 0, 0, False)
+                    progress_cb(i + 1, total, im_rec.filename, 0, 0, False, {})
 
-        # 导出每批次
+        # 导出每批次（shp/ 与 gdb/ 分区）
         for sname, pts in session_points.items():
             lanes = session_lanes.get(sname, [])
             sp = sl = ""
             if export_shp:
-                sp = out / f"result_{sname}.shp"
-                sl = out / f"result_lanes_{sname}.shp"
+                sp = out / "shp" / f"result_{sname}.shp"
+                sl = out / "shp" / f"result_lanes_{sname}.shp"
                 export_points_shp(sp, pts)
                 export_lines_shp(sl, lanes)
             gdb_ok = False
             if export_gdb:
-                gdb = out / f"result_{sname}.gdb"
+                gdb = out / "gdb" / f"result_{sname}.gdb"
                 gdb_ok = (export_points_gdb(gdb, "detections", pts) and
                           export_lines_gdb(gdb, "lanes", lanes))
                 if not gdb_ok:
                     from .exporter import WARNINGS as _gdb_warn
                     while _gdb_warn:
                         self.errors.append(_gdb_warn.pop(0))
-            per_session[sname] = {"det": len(pts), "lane": len(lanes),
+            cats = {}
+            for p in pts:
+                c = CATEGORY_CN.get(p.get("class_id"))
+                if c:
+                    cats[c] = cats.get(c, 0) + 1
+            per_session[sname] = {"det": len(pts), "lane": len(lanes), "cats": cats,
                                    "shp": str(sp) if sp else "",
                                    "gdb": str(gdb) if (export_gdb and gdb_ok) else ""}
 
@@ -190,14 +204,14 @@ class Pipeline:
             if changes:
                 cp = ""
                 if export_shp:
-                    cp = out / "result_change.shp"
+                    cp = out / "shp" / "result_change.shp"
                     export_points_shp(cp, [dict(c, class_id=c.get("class_id", -1),
                                                 class_cn=c.get("class_cn", ""),
                                                 session=f"{c['session_a']}->{c['session_b']}",
                                                 image=c.get("change_type", ""),
                                                 dist=0.0, score=0.0) for c in changes])
                 if export_gdb:
-                    if not export_points_gdb(out / "result_change.gdb", "changes", [
+                    if not export_points_gdb(out / "gdb" / "result_change.gdb", "changes", [
                         dict(c, class_id=c.get("class_id", -1), class_cn=c.get("class_cn", ""),
                              session=f"{c['session_a']}->{c['session_b']}", image=c.get("change_type", ""),
                              dist=0.0, score=0.0) for c in changes]):

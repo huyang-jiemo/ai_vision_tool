@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 
-from pipeline.config import PipelineConfig
+from pipeline.config import BUSINESS_CATEGORIES, PipelineConfig
 from pipeline.detector import YoloDetector
 from pipeline.processor import Pipeline
 
@@ -197,9 +197,13 @@ class Api:
 
         pipe = Pipeline(self.cfg, det)
 
-        def cb(i, total, fname, nd, nl, ok=True):
-            wlog(f"[{i}/{total}] {fname} 目标:{nd} 车道线:{nl}"
-                 + ("" if ok else " [失败]"))
+        def cb(i, total, fname, nd, nl, ok=True, cats=None):
+            if ok:
+                detail = " ".join(f"{c}:{(cats or {}).get(c, 0)}"
+                                  for c in BUSINESS_CATEGORIES)
+                wlog(f"[{i}/{total}] {fname} 目标:{nd}（{detail}） 车道线:{nl}")
+            else:
+                wlog(f"[{i}/{total}] {fname} 解译失败")
             with self.state.lock:
                 self.state.progress = i
                 self.state.total = total
@@ -226,9 +230,15 @@ class Api:
                 wlog("ERR: " + e)
             total_det = sum(v["det"] for v in res.per_session.values())
             total_lane = sum(v["lane"] for v in res.per_session.values())
-            wlog(f"解译完成：{len(res.per_session)} 个批次，目标 {total_det}，"
+            cat_totals = {}
+            for v in res.per_session.values():
+                for c, n in v.get("cats", {}).items():
+                    cat_totals[c] = cat_totals.get(c, 0) + n
+            detail = " ".join(f"{c}:{cat_totals.get(c, 0)}"
+                              for c in BUSINESS_CATEGORIES)
+            wlog(f"解译完成：{len(res.per_session)} 个批次，目标 {total_det}（{detail}），"
                  f"车道线 {total_lane}，时序变化 {res.change_count}")
-            wlog(f"成果目录: {res.output_dir}")
+            wlog(f"成果目录: {res.output_dir}（preview/ 标注预览 · shp/ 矢量 · gdb/ 地理数据库）")
         except Exception as e:
             with self.state.lock:
                 self.state.state = "error"
