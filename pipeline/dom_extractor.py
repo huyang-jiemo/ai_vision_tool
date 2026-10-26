@@ -99,7 +99,7 @@ class DomExtractor:
 
     # ---------- 主流程 ----------
     def run(self, tif_path: str, out_dir: str, stock_gdb: str | None = None,
-            pad_m: float = 60.0, wlog=print, progress_cb=None, export_shp: bool = True,
+            pad_m: float = 60.0, wlog=print, progress_cb=None, export_shp: bool = False,
             use_corridor: bool = True, corridor_half_m: float = 8.0,
             corridor_layers: tuple | None = ("LTSL", "LFCL")):
         import geopandas as gpd

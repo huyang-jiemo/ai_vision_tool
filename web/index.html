@@ -3,171 +3,207 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AI Vision Tool</title>
+<title>众源感知自动解译工具</title>
 <style>
   /* ══════════ Design Tokens ══════════ */
   :root {
-    --primary: #3370FF; --primary-600: #2B5CE6; --primary-050: #EEF3FF;
-    --violet: #7C5CFF; --violet-050: #F0EDFF;
-    --teal: #00A8A0; --teal-050: #E4F7F5;
-    --amber: #E8890C; --amber-050: #FEF4E6;
-    --green: #00B42A; --green-050: #E8FFEA;
-    --red: #F53F3F; --red-050: #FFECE8;
+    --blue: #2E6BE6; --blue-d: #1E55C8; --blue-050: #EBF1FF; --blue-100: #DCE7FF;
+    --teal: #0E9F94; --teal-d: #0B857C; --teal-050: #E3F7F4; --teal-100: #CBEEE9;
+    --amber: #D97A06; --amber-d: #B96604; --amber-050: #FDF2E2; --amber-100: #F9E3C4;
+    --violet: #7A5AF8; --violet-050: #F1EEFF;
+    --green: #12A150; --green-050: #E9F9EF;
+    --red: #E5484D; --red-050: #FDECEC;
 
-    --ink-1: #1D2129; --ink-2: #4E5969; --ink-3: #86909C; --ink-4: #C2C7D0;
-    --line: #ECEEF1; --line-2: #DFE3E8;
-    --bg: #F4F5F7; --card: #FFFFFF; --hover: #F7F8FA;
+    --ink-1: #17212E; --ink-2: #46536A; --ink-3: #7C8AA0; --ink-4: #B9C2D0;
+    --line: #E7EAF0; --line-2: #D8DDE7;
+    --bg: #F3F5F8; --card: #FFFFFF; --hover: #F6F8FA;
 
-    --r-sm: 8px; --r-md: 10px; --r-lg: 14px;
-    --sh-1: 0 1px 2px rgba(29,33,41,.04), 0 1px 4px rgba(29,33,41,.04);
-    --sh-2: 0 2px 6px rgba(29,33,41,.06), 0 8px 24px rgba(29,33,41,.06);
-    --sh-btn: 0 2px 8px rgba(43,92,230,.28);
-    --ease: 160ms cubic-bezier(.4,0,.2,1);
+    --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+    --sh-1: 0 1px 2px rgba(23,33,46,.05), 0 2px 8px rgba(23,33,46,.04);
+    --sh-2: 0 4px 12px rgba(23,33,46,.08), 0 12px 32px rgba(23,33,46,.10);
+    --ease: 180ms cubic-bezier(.4,0,.2,1);
+    --rail-w: 236px;
   }
   * { box-sizing: border-box; margin: 0; }
   html, body { height: 100%; }
   body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
          background: var(--bg); color: var(--ink-1); font-size: 14px;
-         display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+         display: flex; -webkit-font-smoothing: antialiased; overflow: hidden; }
   .num { font-variant-numeric: tabular-nums; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  button { border: 0; border-radius: var(--r-sm); font-size: 13px; cursor: pointer;
+           font-family: inherit; transition: background var(--ease), box-shadow var(--ease),
+           transform var(--ease), opacity var(--ease), color var(--ease); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  input[type=text], input[type=number] { width: 100%; height: 38px; padding: 0 12px;
+         border: 1px solid var(--line-2); border-radius: var(--r-sm); font-size: 13px;
+         color: var(--ink-1); outline: none; background: #fff;
+         transition: border-color var(--ease), box-shadow var(--ease); }
+  input:hover { border-color: var(--ink-4); }
+  input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(46,107,230,.12); }
+  input::placeholder { color: var(--ink-3); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #C9D2DF; border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #AAB6C8; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
 
-  /* ══════════ 顶栏 ══════════ */
-  header { height: 56px; background: var(--card); border-bottom: 1px solid var(--line-2);
-           display: flex; align-items: center; justify-content: space-between;
-           padding: 0 22px; flex-shrink: 0; }
-  .brand { display: flex; align-items: center; gap: 11px; }
-  .brand svg { width: 34px; height: 34px; border-radius: 9px; box-shadow: 0 3px 8px rgba(28,63,124,.30); }
-  .brand .tt { display: flex; flex-direction: column; line-height: 1.25; }
-  .brand .name { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
-  .brand .sub { font-size: 11px; color: var(--ink-3); }
-  .badge-ver { font-size: 10px; color: #fff; background: linear-gradient(135deg,#4F7DFF,#7C5CFF);
-               padding: 2px 8px; border-radius: 10px; font-weight: 600; align-self: center; }
-  .model { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2);
-           background: var(--hover); border: 1px solid var(--line); padding: 6px 13px;
-           border-radius: 20px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); }
-  .dot.ok { background: var(--green); box-shadow: 0 0 0 3px rgba(0,180,42,.14); }
-  .dot.no { background: var(--red); box-shadow: 0 0 0 3px rgba(245,63,63,.14); }
+  /* ══════════ 左侧导航 ══════════ */
+  .rail { width: var(--rail-w); flex-shrink: 0; background: #101826; color: #B7C2D4;
+          display: flex; flex-direction: column; padding: 18px 14px 14px; }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 18px; }
+  .brand svg { width: 38px; height: 38px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  .brand .tt { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+  .brand .name { font-size: 13.5px; font-weight: 700; color: #F2F6FC; letter-spacing: .3px;
+                 white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .brand .sub { font-size: 10.5px; color: #6B7A93; white-space: nowrap; }
+  .badge-ver { font-size: 10px; color: #fff; background: linear-gradient(135deg,#4F7DFF,#7A5AF8);
+               padding: 2px 8px; border-radius: 10px; font-weight: 600; margin-left: 2px; }
+  .nav-t { font-size: 10.5px; font-weight: 600; letter-spacing: 1.5px; color: #5A6880;
+           padding: 8px 10px 6px; }
+  .nav { display: flex; flex-direction: column; gap: 4px; }
+  .nav button { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+                background: transparent; color: #B7C2D4; padding: 10px 12px;
+                border-radius: 11px; transition: all var(--ease); }
+  .nav button:hover { background: rgba(255,255,255,.06); color: #E8EEF7; }
+  .nav button.on { background: rgba(255,255,255,.10); color: #fff; }
+  .nav .nic { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center;
+              justify-content: center; flex-shrink: 0; background: rgba(255,255,255,.08);
+              transition: all var(--ease); }
+  .nav .nic svg { width: 17px; height: 17px; }
+  .nav .nt { display: flex; flex-direction: column; min-width: 0; }
+  .nav .t1 { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+  .nav .t2 { font-size: 10.5px; color: #6B7A93; line-height: 1.4; white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+  .nav button.on .nic { background: var(--ac, var(--blue)); color: #fff;
+                        box-shadow: 0 4px 10px rgba(0,0,0,.35); }
+  .nav button.on .t2 { color: #9FB0C8; }
+  .rail-spacer { flex: 1; }
+  .model { margin: 10px 4px 0; padding: 11px 12px; border-radius: 12px;
+           background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07);
+           display: flex; align-items: center; gap: 9px; font-size: 12px; color: #9FB0C8; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); flex-shrink: 0; }
+  .dot.ok { background: #2ECC6F; box-shadow: 0 0 0 3px rgba(46,204,111,.18); }
+  .dot.no { background: var(--red); box-shadow: 0 0 0 3px rgba(229,72,77,.18); }
 
   /* ══════════ 主体 ══════════ */
-  main { flex: 1; overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
-          padding: 16px 22px; box-shadow: var(--sh-1); }
+  .wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  main { flex: 1; overflow-y: auto; padding: 20px 24px 24px; }
+  .page { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .page[hidden] { display: none; }
 
-  .card-head { display: flex; align-items: center; gap: 10px; padding-bottom: 12px;
+  .page-head { display: flex; align-items: flex-start; gap: 14px; padding: 2px 2px 0; }
+  .page-head .ph-ic { width: 44px; height: 44px; border-radius: 13px; color: #fff; flex-shrink: 0;
+                      display: flex; align-items: center; justify-content: center;
+                      background: var(--ac, var(--blue));
+                      box-shadow: 0 6px 16px -4px var(--ac, var(--blue)); }
+  .page-head .ph-ic svg { width: 22px; height: 22px; }
+  .page-head .ph-tt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .page-head .t1 { font-size: 19px; font-weight: 800; letter-spacing: .2px; }
+  .page-head .t2 { font-size: 12.5px; color: var(--ink-3); line-height: 1.55; }
+  .page-head .spacer { flex: 1; }
+
+  .steps { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+  .step { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3); }
+  .step b { width: 17px; height: 17px; border-radius: 50%; background: var(--hover);
+            border: 1px solid var(--line-2); color: var(--ink-3); font-size: 10px;
+            display: inline-flex; align-items: center; justify-content: center; font-weight: 600; }
+  .step-arrow { color: var(--ink-4); font-size: 11px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+          padding: 18px 22px; box-shadow: var(--sh-1); }
+  .card-head { display: flex; align-items: center; gap: 11px; padding-bottom: 13px;
                border-bottom: 1px solid var(--line); }
-  .card-head .ht { display: flex; flex-direction: column; }
-  .card-head .t1 { font-size: 14px; font-weight: 700; }
-  .card-head .t2 { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
-  .ticon { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center;
-           justify-content: center; flex-shrink: 0; box-shadow: var(--sh-1); }
+  .card-head .ht { display: flex; flex-direction: column; min-width: 0; }
+  .card-head .t1 { font-size: 14.5px; font-weight: 700; }
+  .card-head .t2 { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+  .ticon { width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center;
+           justify-content: center; flex-shrink: 0; color: #fff; }
   .ticon svg { width: 16px; height: 16px; }
-  .ticon.blue { background: linear-gradient(135deg,#4F7DFF,#3370FF); color: #fff; }
-  .ticon.violet { background: linear-gradient(135deg,#9B7BFF,#7C5CFF); color: #fff; }
-  .ticon.dark { background: linear-gradient(135deg,#414652,#1E2126); color: #fff; }
-  .ticon.teal { background: linear-gradient(135deg,#1FC7BC,#00A8A0); color: #fff; }
+  .ticon.blue { background: linear-gradient(135deg,#3F7BFF,#2461DB); }
+  .ticon.teal { background: linear-gradient(135deg,#16B3A6,#0B857C); }
+  .ticon.amber { background: linear-gradient(135deg,#F09B1B,#C76E03); }
+  .ticon.dark { background: linear-gradient(135deg,#3A4354,#1B2230); }
+  .ticon.green { background: linear-gradient(135deg,#2ECC6F,#12A150); }
   .spacer { flex: 1; }
 
   /* ══════════ 配置区 ══════════ */
-  .cfg-grid { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; align-items: flex-end; }
+  .cfg-grid { display: flex; gap: 14px; margin-top: 15px; flex-wrap: wrap; align-items: flex-end; }
   .cfg-field { display: flex; flex-direction: column; }
-  .cfg-field.w1 { flex: 1.35; min-width: 250px; }
-  .cfg-field.w3 { width: 116px; }
+  .cfg-field.w1 { flex: 1.35; min-width: 240px; }
+  .cfg-field.w2 { flex: 1; min-width: 200px; }
+  .cfg-field.w3 { width: 112px; }
   .cfg-field label { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; font-weight: 500; }
-  input[type=text], input[type=number] { width: 100%; height: 36px; padding: 0 11px;
-         border: 1px solid var(--line-2); border-radius: var(--r-sm); font-size: 13px;
-         color: var(--ink-1); outline: none; background: var(--card);
-         transition: border-color var(--ease), box-shadow var(--ease); }
-  input:hover { border-color: var(--ink-4); }
-  input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(51,112,255,.10); }
-  input::placeholder { color: var(--ink-3); }
+  .cfg-field label .opt { color: var(--ink-3); font-weight: 400; }
   .path-row { display: flex; gap: 8px; }
   .path-row input { flex: 1; min-width: 0; }
 
-  button { border: 0; border-radius: var(--r-sm); font-size: 13px; cursor: pointer;
-           font-family: inherit; transition: background var(--ease), box-shadow var(--ease),
-           transform var(--ease), opacity var(--ease); }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  .primary { background: linear-gradient(135deg,#4F7DFF,#2B5CE6); color: #fff; height: 38px;
-             padding: 0 22px; font-weight: 600; box-shadow: var(--sh-btn);
-             display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-  .primary svg { width: 16px; height: 16px; flex-shrink: 0; }
-  .primary.big svg { width: 17px; height: 17px; }
-  .primary:hover:not(:disabled) { background: linear-gradient(135deg,#3D6EFF,#234FD1);
-             transform: translateY(-1px); box-shadow: 0 4px 12px rgba(43,92,230,.36); }
-  .primary:active:not(:disabled) { transform: translateY(0); }
-  .primary.big { font-size: 14px; }
-  .primary.sm { height: 36px; padding: 0 15px; font-size: 13px; }
-  .primary.sm svg { width: 15px; height: 15px; }
-  .ghost { background: var(--card); color: var(--primary); border: 1px solid var(--line-2);
-           height: 36px; padding: 0 13px; display: inline-flex; align-items: center; gap: 6px;
-           white-space: nowrap; font-weight: 500; }
-  .ghost:hover:not(:disabled) { background: var(--primary-050); border-color: var(--primary); }
-  .ghost.sq { width: 36px; padding: 0; justify-content: center; }
-  .ghost svg { width: 15px; height: 15px; }
-  .checks { display: flex; gap: 18px; align-items: center; height: 36px; }
-  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-            color: var(--ink-1); font-size: 13px; margin: 0; height: 36px;
-            padding: 0 4px; user-select: none; font-weight: 500; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+         height: 38px; padding: 0 20px; font-weight: 600; font-size: 13.5px; color: #fff;
+         background: var(--ac, var(--blue)); box-shadow: 0 4px 12px -3px var(--ac, var(--blue)); }
+  .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .btn:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px);
+         box-shadow: 0 6px 16px -3px var(--ac, var(--blue)); }
+  .btn:active:not(:disabled) { transform: translateY(0); }
+  .btn.sm { height: 36px; padding: 0 14px; font-size: 12.5px; }
+  .btn.sm svg { width: 14px; height: 14px; }
+  .btn.ghost { background: #fff; color: var(--ac, var(--blue)); border: 1px solid var(--line-2);
+               box-shadow: none; font-weight: 500; }
+  .btn.ghost:hover:not(:disabled) { background: var(--hover); border-color: var(--ac, var(--blue)); }
+  .checks { display: flex; gap: 16px; align-items: center; min-height: 38px; flex-wrap: wrap; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink-1);
+            font-size: 12.5px; margin: 0; height: 32px; padding: 0 4px; user-select: none; font-weight: 500; }
   .switch input { display: none; }
-  .switch .track { width: 36px; height: 20px; border-radius: 10px; background: #D5DAE2;
+  .switch .track { width: 34px; height: 19px; border-radius: 10px; background: #CDD5E1;
                    position: relative; transition: background var(--ease); flex-shrink: 0; }
-  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px;
-                   height: 16px; border-radius: 50%; background: #fff;
-                   box-shadow: 0 1px 3px rgba(0,0,0,.22); transition: transform var(--ease); }
-  .switch input:checked + .track { background: var(--primary); }
-  .switch input:checked + .track::after { transform: translateX(16px); }
-  .switch:hover .track { background: #C3C9D4; }
-  .switch input:checked:hover + .track { background: var(--primary); }
-  .hint { font-size: 12px; color: var(--ink-3); margin-top: 10px; line-height: 1.6; word-break: break-all; }
+  .switch .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px;
+                   height: 15px; border-radius: 50%; background: #fff;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform var(--ease); }
+  .switch input:checked + .track { background: var(--ac, var(--blue)); }
+  .switch input:checked + .track::after { transform: translateX(15px); }
+  .hint { font-size: 12px; color: var(--ink-3); margin-top: 11px; line-height: 1.6; word-break: break-all; }
   .hint.ok { color: var(--green); }
   .hint.err { color: var(--red); }
 
-  /* ══════════ 下区 ══════════ */
-  .bottom { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
-            flex: 1; min-height: 0; align-items: stretch; }
-  .bottom > .card { display: flex; flex-direction: column; min-height: 0; }
-  #runView { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-  #runView > :not(.file-list):not(#errBox) { flex-shrink: 0; }
-  .right-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
-  .right-col .card { display: flex; flex-direction: column; min-height: 0; }
-  .right-col .card:first-of-type { flex: 1; }
-
-  .chip { font-size: 12px; padding: 3px 12px; border-radius: 20px; font-weight: 600; }
+  /* ══════════ 状态 chip ══════════ */
+  .chip { font-size: 12px; padding: 4px 13px; border-radius: 20px; font-weight: 600; }
   .chip.idle { background: var(--hover); color: var(--ink-3); }
-  .chip.run { background: var(--primary-050); color: var(--primary); }
+  .chip.run { background: var(--blue-050); color: var(--blue); }
   .chip.run::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-                      background: var(--primary); margin-right: 5px; vertical-align: 1px;
+                      background: var(--blue); margin-right: 5px; vertical-align: 1px;
                       animation: pulse 1.2s ease-in-out infinite; }
   .chip.done { background: var(--green-050); color: var(--green); }
   .chip.fail { background: var(--red-050); color: var(--red); }
   @keyframes pulse { 50% { opacity: .25; } }
 
+  /* ══════════ 双栏 ══════════ */
+  .grid2 { display: grid; grid-template-columns: 5fr 6fr; gap: 16px; align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
   /* ══════════ 进度 ══════════ */
-  .pct-row { display: flex; align-items: baseline; justify-content: space-between; margin: 16px 0 8px; }
-  .pct { font-size: 40px; font-weight: 800; letter-spacing: -1.5px; line-height: 1;
-         background: linear-gradient(135deg,#3370FF,#7C5CFF);
+  .pct-row { display: flex; align-items: baseline; justify-content: space-between; margin: 15px 0 8px; }
+  .pct { font-size: 38px; font-weight: 800; letter-spacing: -1.5px; line-height: 1;
+         background: linear-gradient(135deg,var(--blue),var(--violet));
          -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .pct small { font-size: 16px; -webkit-text-fill-color: var(--ink-3); font-weight: 500; }
+  .pct small { font-size: 15px; -webkit-text-fill-color: var(--ink-3); font-weight: 500; }
   .pct-sub { font-size: 12px; color: var(--ink-3); }
-  .bar { height: 10px; background: var(--hover); border-radius: 6px; overflow: hidden; }
+  .bar { height: 9px; background: var(--hover); border-radius: 6px; overflow: hidden;
+         border: 1px solid var(--line); }
   .bar > div { height: 100%; width: 0; border-radius: 6px; transition: width .25s ease;
-               background: linear-gradient(90deg,#3370FF,#7C5CFF); position: relative; }
+               background: linear-gradient(90deg,var(--blue),var(--violet)); position: relative; overflow: hidden; }
   .bar > div::after { content: ""; position: absolute; inset: 0;
-               background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+               background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent);
                animation: shine 1.6s linear infinite; }
   @keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
-  .tile { border-radius: var(--r-md); padding: 10px 12px; display: flex; align-items: center; gap: 9px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+  .tile { border-radius: var(--r-md); padding: 11px 13px; display: flex; align-items: center; gap: 10px; }
   .tile .tic { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center;
                justify-content: center; flex-shrink: 0; }
   .tile .tic svg { width: 16px; height: 16px; }
   .tile .k { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
   .tile .v { font-size: 18px; font-weight: 700; line-height: 1.15; white-space: nowrap; }
-  .tile.total { background: var(--primary-050); }
-  .tile.total .tic { background: #fff; color: var(--primary); } .tile.total .v { color: var(--primary); }
+  .tile.total { background: var(--blue-050); }
+  .tile.total .tic { background: #fff; color: var(--blue); } .tile.total .v { color: var(--blue); }
   .tile.ok { background: var(--green-050); }
   .tile.ok .tic { background: #fff; color: var(--green); } .tile.ok .v { color: var(--green); }
   .tile.bad { background: var(--red-050); }
@@ -176,94 +212,113 @@
   .tile.time .tic { background: #fff; color: var(--amber); } .tile.time .v { color: var(--amber); }
 
   /* ══════════ 文件队列 ══════════ */
-  .files-head { display: flex; align-items: center; gap: 8px; margin: 16px 0 8px; }
+  .files-head { display: flex; align-items: center; gap: 7px; margin: 15px 0 8px; }
   .files-head .fh-t { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-right: 2px; }
-  .fchip { font-size: 11px; padding: 3px 10px; border-radius: 12px; cursor: pointer;
-           background: var(--hover); border: 1px solid transparent; color: var(--ink-3);
-           transition: all var(--ease); }
+  .fchip { font-size: 11px; padding: 3px 11px; border-radius: 12px; cursor: pointer;
+           background: var(--hover); border: 1px solid transparent; color: var(--ink-3); }
   .fchip:hover { border-color: var(--line-2); }
   .fchip.on { background: var(--ink-1); color: #fff; font-weight: 600; }
   .files-head .cnt { margin-left: auto; font-size: 11.5px; color: var(--ink-3); }
 
-  .file-list { flex: 1; min-height: 140px; overflow: auto; border: 1px solid var(--line);
-               border-radius: var(--r-md); }
-  .file-list:empty { display: flex; align-items: center; justify-content: center; }
-  .file-list:empty::after { content: "选择数据源并开始解译后，此处展示文件队列";
-               text-align: center; color: var(--ink-4); font-size: 12px; }
-  .frow { display: flex; align-items: center; gap: 10px; padding: 7px 13px;
+  .file-list { max-height: 340px; overflow: auto; border: 1px solid var(--line);
+               border-radius: var(--r-md); background: #fff; }
+  .frow { display: flex; align-items: center; gap: 9px; padding: 6px 12px;
           border-bottom: 1px solid var(--line); font-size: 12.5px; transition: background var(--ease); }
   .frow:last-child { border-bottom: 0; }
   .frow:hover { background: var(--hover); }
-  .frow .fic { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-  .frow .fic svg { width: 15px; height: 15px; }
-  .fic.pending { color: var(--ink-4); }
-  .fic.done { color: var(--green); }
-  .fic.failed { color: var(--red); }
-  .spinner { width: 13px; height: 13px; border: 2px solid var(--primary-050);
-             border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+  .frow .fic { width: 17px; height: 17px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .frow .fic svg { width: 14px; height: 14px; }
+  .fic.pending { color: var(--ink-4); } .fic.done { color: var(--green); } .fic.failed { color: var(--red); }
+  .spinner { width: 13px; height: 13px; border: 2px solid var(--blue-050);
+             border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .fname { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 12px;
-           color: var(--ink-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fmeta { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .fsess { flex-shrink: 0; font-size: 10.5px; padding: 1px 7px; border-radius: 8px;
-           background: var(--primary-050); color: var(--primary); font-weight: 500;
-           max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fname { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fsess { flex-shrink: 0; font-size: 10px; padding: 1px 7px; border-radius: 8px;
+           background: var(--blue-050); color: var(--blue); font-weight: 500;
+           max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ftag { font-size: 11px; padding: 1px 9px; border-radius: 10px; white-space: nowrap; font-weight: 500; }
   .ftag.pending { background: var(--hover); color: var(--ink-3); }
   .ftag.done { background: var(--green-050); color: var(--green); }
   .ftag.failed { background: var(--red-050); color: var(--red); }
-  .ftag.running { background: var(--primary-050); color: var(--primary); }
+  .ftag.running { background: var(--blue-050); color: var(--blue); }
+  .catchips { display: flex; gap: 4px; flex-shrink: 0; }
+  .catchip { font-size: 10px; padding: 1px 7px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
+  .catchip.c0 { background: var(--violet-050); color: var(--violet); }
+  .catchip.c1 { background: var(--blue-050); color: var(--blue); }
+  .catchip.c2 { background: var(--amber-050); color: var(--amber); }
+  .catchip.c3 { background: var(--teal-050); color: var(--teal); }
 
-  /* ══════════ 日志 ══════════ */
-  .log { background: #17191C; color: #C9D4E3; font-family: ui-monospace, Menlo, monospace;
-         font-size: 12px; line-height: 1.75; flex: 1; min-height: 160px; overflow: auto;
-         padding: 13px 15px; border-radius: var(--r-md); white-space: pre-wrap; word-break: break-all;
-         user-select: text; -webkit-user-select: text; cursor: text; }
-  .log:empty::before { content: "日志将在此处输出"; color: #5B6470; }
+  /* ══════════ 日志（终端风） ══════════ */
+  .log { background: #12181F; color: #AEBACB; font-family: ui-monospace, Menlo, monospace;
+         font-size: 12px; line-height: 1.8; height: 300px; overflow: auto;
+         padding: 12px 15px; border-radius: var(--r-md); user-select: text; -webkit-user-select: text;
+         cursor: text; border: 1px solid #232C38; }
+  .log.auto { height: auto; min-height: 150px; max-height: 340px; }
+  .log:empty::before { content: "日志将在此处实时输出"; color: #4E5A6B; }
+  .log .l { display: block; white-space: pre-wrap; word-break: break-all; }
+  .log .l.ok { color: #52D68A; }
+  .log .l.err { color: #FF7B81; }
+  .log .l.info { color: #6FB4FF; }
+  .log .l.warn { color: #F0B453; }
 
-  /* ══════════ 结果 ══════════ */
+  /* ══════════ 表格 ══════════ */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; }
-  th { color: var(--ink-3); font-weight: 500; font-size: 12px; background: var(--hover); }
+  th { color: var(--ink-3); font-weight: 500; font-size: 11.5px; background: var(--hover); }
   th:not(:first-child), td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
   tr:last-child td { border-bottom: 0; }
-  td .num { font-weight: 700; color: var(--primary); }
-  #resultBody:empty::after { content: "解译完成后，此处展示各批次矢量统计"; display: block;
-               padding: 16px 2px; color: var(--ink-3); font-size: 12.5px; }
+  td .num { font-weight: 700; color: var(--blue); }
+  .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 9px; border-radius: 10px; }
+  .pill.new { background: var(--green-050); color: var(--green); }
+  .pill.miss { background: var(--red-050); color: var(--red); }
+  .pill.mod { background: var(--amber-050); color: var(--amber); }
+  .pill.same { background: var(--blue-050); color: var(--blue); }
 
-  /* ══════════ 空状态 ══════════ */
-  .empty { text-align: center; padding: 34px 0 26px; color: var(--ink-3); }
-  .empty .art { width: 84px; height: 60px; margin: 0 auto 12px; }
+  /* ══════════ 结果概览卡 ══════════ */
+  .stat4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0 4px; }
+  .stat { border-radius: var(--r-md); padding: 13px 14px; border: 1px solid var(--line); }
+  .stat .k { font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 5px; }
+  .stat .v { font-size: 24px; font-weight: 800; line-height: 1.3; margin-top: 2px; }
+  .stat.new { background: var(--green-050); border-color: transparent; }
+  .stat.new .v { color: var(--green); }
+  .stat.miss { background: var(--red-050); border-color: transparent; }
+  .stat.miss .v { color: var(--red); }
+  .stat.mod { background: var(--amber-050); border-color: transparent; }
+  .stat.mod .v { color: var(--amber); }
+  .stat.same { background: var(--blue-050); border-color: transparent; }
+  .stat.same .v { color: var(--blue); }
+
+  .pathline { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 9px 12px;
+              background: var(--hover); border-radius: var(--r-sm); font-size: 12px; color: var(--ink-2); }
+  .pathline svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--ink-3); }
+  .pathline .p { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: break-all; }
+  .pathline button { flex-shrink: 0; }
+
+  .prev-img { width: 100%; border-radius: var(--r-md); border: 1px solid var(--line); margin-top: 12px; display: block; }
+
+  .empty { text-align: center; padding: 30px 0 24px; color: var(--ink-3); font-size: 12.5px; }
+  .empty svg { width: 52px; height: 52px; color: var(--ink-4); opacity: .55; margin-bottom: 8px; }
 
   .error-box { margin-top: 12px; background: var(--red-050); color: var(--red);
-               border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; word-break: break-all; }
+               border-radius: var(--r-sm); padding: 10px 13px; font-size: 13px; word-break: break-all; }
 
-  #toast { position: fixed; top: 66px; left: 50%; transform: translateX(-50%) translateY(-8px);
-           background: #FFFFFF; border: 1px solid var(--line); box-shadow: var(--sh-2);
-           border-radius: var(--r-md); padding: 10px 18px; font-size: 13px; opacity: 0;
-           pointer-events: none; transition: opacity .2s, transform .2s; max-width: 70%; z-index: 99;
-           display: flex; align-items: center; gap: 8px; }
+  /* ══════════ Toast ══════════ */
+  #toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%) translateY(-10px);
+           background: #101826; color: #EDF2F9; box-shadow: var(--sh-2);
+           border-radius: 12px; padding: 11px 18px 11px 14px; font-size: 13px; opacity: 0;
+           pointer-events: none; transition: opacity .22s, transform .22s; max-width: 70%; z-index: 99;
+           display: flex; align-items: center; gap: 9px; }
   #toast .tico { width: 17px; height: 17px; flex-shrink: 0; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  #toast.err { color: var(--red); }
-  #toast.good { color: var(--green); }
-
-  /* ══════════ 标签页 ══════════ */
-  .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
-  .tab { border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
-         font-size: 13.5px; font-weight: 500; padding: 9px 22px; border-radius: 10px 10px 0 0;
-         cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all .15s; }
-  .tab svg { width: 16px; height: 16px; }
-  .tab:hover { color: var(--primary); }
-  .tab.on { background: var(--primary-050); color: var(--primary); border-color: transparent; }
-  .tabsec { display: flex; flex-direction: column; gap: 14px; }
-  .tabsec[hidden] { display: none; }
-  .prev-img { width: 100%; border-radius: var(--r-md); border: 1px solid var(--line); margin-top: 8px; }
+  #toast.err .tico { color: #FF8A8E; }
+  #toast.good .tico { color: #52D68A; }
 </style>
 </head>
 <body>
 
-<header>
+<!-- ══════════ 左侧导航 ══════════ -->
+<aside class="rail">
   <div class="brand">
     <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
@@ -274,267 +329,321 @@
       <path d="M436 612 L464 384 L560 384 L588 612 Z" fill="#1B3D7C"/>
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
-    <div class="tt"><span class="name">众源感知自动解译工具</span></div>
-    <span class="badge-ver">v0.4.1</span>
+    <div class="tt"><span class="name">众源感知解译<span class="badge-ver">v0.5.0</span></span><span class="sub">AI 采集 · 提取 · 更新</span></div>
   </div>
-  <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
-</header>
 
+  <div class="nav-t">工作台</div>
+  <nav class="nav">
+    <button class="on" data-tab="car" style="--ac:var(--blue)" type="button">
+      <span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg></span>
+      <span class="nt"><span class="t1">车载影像提取</span><span class="t2">街景照片 · 目标+车道线 · SHP</span></span>
+    </button>
+    <button data-tab="dom" style="--ac:var(--teal)" type="button">
+      <span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/></svg></span>
+      <span class="nt"><span class="t1">正射影像提取</span><span class="t2">DOM/TIF · 车道标线 · GDB</span></span>
+    </button>
+    <button data-tab="cmp" style="--ac:var(--amber)" type="button">
+      <span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
+      <span class="nt"><span class="t1">变化比对</span><span class="t2">新成果 vs 存量 · 增/灭/改</span></span>
+    </button>
+  </nav>
+
+  <div class="rail-spacer"></div>
+  <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型…</span></div>
+</aside>
+
+<!-- ══════════ 内容区 ══════════ -->
+<div class="wrap">
 <main>
-  <div class="tabs">
-    <button class="tab on" data-tab="car" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg>
-      车载影像解译</button>
-    <button class="tab" data-tab="dom" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
-      正射影像提取</button>
-    <button class="tab" data-tab="cmp" type="button">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg>
-      变化比对</button>
-  </div>
 
-  <section id="tab-car" class="tabsec">
-  <!-- 上：解译配置 -->
-  <div class="card">
-    <div class="card-head">
-      <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
-      <div class="ht"><span class="t1">解译配置</span><span class="t2">选择数据源与输出位置，其余参数保持默认即可</span></div>
+  <!-- ══════ 车载影像提取 ══════ -->
+  <section id="tab-car" class="page" style="--ac:var(--blue)">
+    <div class="page-head">
+      <span class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg></span>
+      <div class="ph-tt">
+        <span class="t1">车载影像提取</span>
+        <span class="t2">对街景照片做 AI 目标检测与车道线识别，经地理参考后输出 SHP 矢量成果</span>
+        <div class="steps">
+          <span class="step"><b>1</b>选择数据源</span><span class="step-arrow">→</span>
+          <span class="step"><b>2</b>选择输出目录</span><span class="step-arrow">→</span>
+          <span class="step"><b>3</b>开始提取</span>
+        </div>
+      </div>
       <span class="spacer"></span>
-      <button class="primary big" id="runBtn" disabled><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始解译</button>
+      <button class="btn" id="runBtn" disabled>
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
     </div>
-    <div class="cfg-grid">
-      <div class="cfg-field w1">
-        <label>数据源目录</label>
-        <div class="path-row">
-          <input type="text" id="dataDir" placeholder="包含按批次配对的 照片/ 与 轨迹/" />
-          <button class="primary sm" id="browseData" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
-        </div>
-      </div>
-      <div class="cfg-field w1">
-        <label>输出目录</label>
-        <div class="path-row">
-          <input type="text" id="outDir" placeholder="解译结果保存位置" />
-          <button class="primary sm" id="browseOut" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>选择</button>
-        </div>
-      </div>
-      <div class="cfg-field w3">
-        <label>置信度阈值</label>
-        <input type="number" id="conf" value="0.15" step="0.05" min="0.05" max="0.9" />
-      </div>
-      <div class="cfg-field w3">
-        <label>最大影像数</label>
-        <input type="number" id="maxImg" value="0" min="0" />
-      </div>
-      <div class="checks">
-        <label class="switch"><input type="checkbox" id="shp" checked /><span class="track"></span>导出 SHP</label>
-        <label class="switch"><input type="checkbox" id="gdb" checked /><span class="track"></span>导出 GDB</label>
-      </div>
-    </div>
-    <div id="scanInfo" class="hint">数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录</div>
-  </div>
 
-  <!-- 下：左进度 / 右日志+结果 -->
-  <div class="bottom">
     <div class="card">
       <div class="card-head">
-        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-        <div class="ht"><span class="t1">解译进度</span><span class="t2">整体进度与逐文件状态</span></div>
-        <span class="spacer"></span>
-        <span id="stateChip" class="chip idle">待机</span>
+        <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+        <div class="ht"><span class="t1">提取配置</span><span class="t2">参数保持默认即可满足常规场景</span></div>
       </div>
-
-      <div id="runView">
-        <div class="pct-row">
-          <span class="pct num" id="pct">0<small>%</small></span>
-          <span class="pct-sub num" id="pctSub">0 / 0</span>
+      <div class="cfg-grid">
+        <div class="cfg-field w1">
+          <label>数据源目录</label>
+          <div class="path-row">
+            <input type="text" id="dataDir" placeholder="包含按批次配对的 照片/ 与 轨迹/" />
+            <button class="btn sm" id="browseData" type="button">选择</button>
+          </div>
         </div>
-        <div class="bar"><div id="bar"></div></div>
-        <div class="tiles">
-          <div class="tile total"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span><div><div class="k">总数</div><div class="v num" id="tTotal">0</div></div></div>
-          <div class="tile ok"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><div><div class="k">成功</div><div class="v num" id="tOk">0</div></div></div>
-          <div class="tile bad"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span><div><div class="k">失败</div><div class="v num" id="tBad">0</div></div></div>
-          <div class="tile time"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span><div><div class="k">已用时</div><div class="v num" id="tTime">00:00</div></div></div>
+        <div class="cfg-field w1">
+          <label>输出目录</label>
+          <div class="path-row">
+            <input type="text" id="outDir" placeholder="SHP 成果保存位置" />
+            <button class="btn sm" id="browseOut" type="button">选择</button>
+          </div>
         </div>
-        <div class="files-head">
-          <span class="fh-t">文件队列</span>
-          <button class="fchip on" data-f="all" type="button">全部</button>
-          <button class="fchip" data-f="done" type="button">成功</button>
-          <button class="fchip" data-f="failed" type="button">失败</button>
-          <span class="cnt num" id="fCount"></span>
+        <div class="cfg-field w3">
+          <label>置信度阈值</label>
+          <input type="number" id="conf" value="0.15" step="0.05" min="0.05" max="0.9" />
         </div>
-        <div id="fileList" class="file-list"></div>
-        <div id="errBox" class="error-box" style="display:none"></div>
+        <div class="cfg-field w3">
+          <label>最大影像数</label>
+          <input type="number" id="maxImg" value="0" min="0" />
+        </div>
       </div>
+      <div id="scanInfo" class="hint">数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录 · 成果输出 SHP（含标注预览图）</div>
     </div>
 
-    <div class="right-col">
-      <div class="card">
-        <div class="card-head">
-          <span class="ticon dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></span>
-          <div class="ht"><span class="t1">运行日志</span><span class="t2">解译过程实时输出 · 可选中复制 · 同步保存到输出目录</span></div>
-          <span class="spacer"></span>
-          <button class="ghost" id="openLog" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8.6a1 1 0 0 1-.83-.45L9.4 4.45A1 1 0 0 0 8.57 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/><path d="M11 16V9M8 12l3-3 3 3"/></svg>
-            打开日志</button>
+    <div class="grid2">
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+            <div class="ht"><span class="t1">提取进度</span><span class="t2">整体进度与逐文件状态</span></div>
+            <span class="spacer"></span>
+            <span id="stateChip" class="chip idle">待机</span>
+          </div>
+          <div class="pct-row">
+            <span class="pct num" id="pct">0<small>%</small></span>
+            <span class="pct-sub num" id="pctSub">0 / 0</span>
+          </div>
+          <div class="bar"><div id="bar"></div></div>
+          <div class="tiles">
+            <div class="tile total"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span><div><div class="k">总数</div><div class="v num" id="tTotal">0</div></div></div>
+            <div class="tile ok"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><div><div class="k">成功</div><div class="v num" id="tOk">0</div></div></div>
+            <div class="tile bad"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span><div><div class="k">失败</div><div class="v num" id="tBad">0</div></div></div>
+            <div class="tile time"><span class="tic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span><div><div class="k">已用时</div><div class="v num" id="tTime">00:00</div></div></div>
+          </div>
+          <div class="files-head">
+            <span class="fh-t">文件队列</span>
+            <button class="fchip on" data-f="all" type="button">全部</button>
+            <button class="fchip" data-f="done" type="button">成功</button>
+            <button class="fchip" data-f="failed" type="button">失败</button>
+            <span class="cnt num" id="fCount"></span>
+          </div>
+          <div id="fileList" class="file-list"></div>
+          <div id="errBox" class="error-box" style="display:none"></div>
         </div>
-        <div id="log" class="log"></div>
       </div>
 
-      <div class="card" id="resultCard">
-        <div class="card-head">
-          <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-          <div class="ht"><span class="t1">解译结果</span><span class="t2">各批次矢量统计</span></div>
-          <span class="spacer"></span>
-          <button class="primary sm" id="openOut2" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8.6a1 1 0 0 1-.83-.45L9.4 4.45A1 1 0 0 0 8.57 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/><path d="M11 16V9M8 12l3-3 3 3"/></svg>
-            打开输出目录</button>
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></span>
+            <div class="ht"><span class="t1">运行日志</span><span class="t2">实时输出 · 同步保存到输出目录</span></div>
+            <span class="spacer"></span>
+            <button class="btn sm ghost" id="openLog" type="button">打开日志文件</button>
+          </div>
+          <div id="log" class="log" style="margin-top:13px"></div>
         </div>
-        <div id="resultBody" style="margin-top:6px"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+            <div class="ht"><span class="t1">提取结果</span><span class="t2">各批次矢量统计（SHP）</span></div>
+            <span class="spacer"></span>
+            <button class="btn sm" id="openOut2" type="button">打开输出目录</button>
+          </div>
+          <div id="resultBody" style="margin-top:8px"></div>
+        </div>
       </div>
     </div>
-  </div>
   </section>
 
   <!-- ══════ 正射影像提取 ══════ -->
-  <section id="tab-dom" class="tabsec" hidden>
+  <section id="tab-dom" class="page" style="--ac:var(--teal)" hidden>
+    <div class="page-head">
+      <span class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/></svg></span>
+      <div class="ph-tt">
+        <span class="t1">正射影像提取</span>
+        <span class="t2">从无人机正射影像（DOM/TIF）提取车道标线与面状标线，按存量走廊约束剔除建筑，直接输出 GDB</span>
+        <div class="steps">
+          <span class="step"><b>1</b>选择 DOM 影像</span><span class="step-arrow">→</span>
+          <span class="step"><b>2</b>指定存量 GDB（推荐）</span><span class="step-arrow">→</span>
+          <span class="step"><b>3</b>开始提取</span>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" id="domRunBtn">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
+    </div>
+
     <div class="card">
       <div class="card-head">
-        <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg></span>
-        <div class="ht"><span class="t1">正射影像提取</span><span class="t2">从无人机正射影像（DOM/TIF）提取车道标线与面状标线，输出 GDB</span></div>
-        <span class="spacer"></span>
-        <button class="primary big" id="domRunBtn">
-          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
+        <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+        <div class="ht"><span class="t1">提取配置</span><span class="t2">成果直接输出 GDB 地理数据库</span></div>
       </div>
       <div class="cfg-grid">
         <div class="cfg-field w1">
           <label>正射影像（TIF）</label>
           <div class="path-row">
             <input type="text" id="domTif" placeholder="选择 DOM 正射影像 .tif 文件" />
-            <button class="primary sm" id="browseDomTif" type="button">选择</button>
+            <button class="btn sm" id="browseDomTif" type="button">选择</button>
           </div>
         </div>
         <div class="cfg-field w1">
           <label>输出目录</label>
           <div class="path-row">
-            <input type="text" id="domOut" placeholder="提取结果保存位置" />
-            <button class="primary sm" id="browseDomOut" type="button">选择</button>
+            <input type="text" id="domOut" placeholder="正射提取.gdb 保存位置" />
+            <button class="btn sm" id="browseDomOut" type="button">选择</button>
           </div>
         </div>
         <div class="cfg-field w1">
-          <label>存量 GDB（可选，用于范围裁剪）</label>
+          <label>存量 GDB<span class="opt">（可选，推荐提供）</span></label>
           <div class="path-row">
-            <input type="text" id="domStock" placeholder="选择存量地图 .gdb 目录" />
-            <button class="primary sm" id="browseDomStock" type="button">选择</button>
+            <input type="text" id="domStock" placeholder="存量地图 .gdb 目录" />
+            <button class="btn sm" id="browseDomStock" type="button">选择</button>
           </div>
         </div>
         <div class="cfg-field w3">
           <label>最短标线（米）</label>
           <input type="number" id="domMinLen" value="2" min="0.5" step="0.5" />
         </div>
-        <div class="checks">
-          <label class="switch"><input type="checkbox" id="domClip" checked /><span class="track"></span>按存量范围裁剪</label>
-          <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="track"></span>仅提取存量道路走廊（±8m，建筑不提取）</label>
-          <label class="switch"><input type="checkbox" id="domShp" checked /><span class="track"></span>同步导出 SHP</label>
+      </div>
+      <div class="checks" style="margin-top:12px">
+        <label class="switch"><input type="checkbox" id="domClip" checked /><span class="track"></span>按存量范围裁剪</label>
+        <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="track"></span>仅提取存量道路走廊（±8m，建筑不提取）</label>
+      </div>
+      <div id="domHint" class="hint">提供存量 GDB 时仅处理其覆盖范围并启用走廊约束（推荐）；否则处理整幅影像</div>
+    </div>
+
+    <div class="grid2">
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+            <div class="ht"><span class="t1">提取进度</span><span class="t2">分块处理进度</span></div>
+            <span class="spacer"></span>
+            <span id="domChip" class="chip idle">待机</span>
+          </div>
+          <div class="pct-row"><span class="pct num" id="domPct">0<small>%</small></span><span class="pct-sub num" id="domPctSub">0 / 0</span></div>
+          <div class="bar"><div id="domBar"></div></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></span>
+            <div class="ht"><span class="t1">运行日志</span></div>
+          </div>
+          <div id="domLog" class="log auto" style="margin-top:13px"></div>
         </div>
       </div>
-      <div id="domHint" class="hint">提供存量 GDB 时仅处理其覆盖范围（推荐）；否则处理整幅影像</div>
-    </div>
 
-    <div class="card">
-      <div class="card-head">
-        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-        <div class="ht"><span class="t1">提取进度</span><span class="t2">分块处理进度与日志</span></div>
-        <span class="spacer"></span>
-        <span id="domChip" class="chip idle">待机</span>
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+            <div class="ht"><span class="t1">提取结果</span><span class="t2">标线统计 · GDB 成果 · 叠加预览</span></div>
+            <span class="spacer"></span>
+            <button class="btn sm" id="domOpenOut" type="button">打开输出目录</button>
+          </div>
+          <div id="domResult" style="margin-top:8px">
+            <div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/></svg><br/>尚未运行。提取完成后此处显示统计与预览图。</div>
+          </div>
+        </div>
       </div>
-      <div class="pct-row"><span class="pct num" id="domPct">0<small>%</small></span><span class="pct-sub num" id="domPctSub">0 / 0</span></div>
-      <div class="bar"><div id="domBar"></div></div>
-      <div id="domLog" class="log" style="margin-top:10px"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">
-        <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-        <div class="ht"><span class="t1">提取结果</span><span class="t2">标线统计与成果位置</span></div>
-        <span class="spacer"></span>
-        <button class="primary sm" id="domOpenOut" type="button">打开输出目录</button>
-      </div>
-      <div id="domResult" style="margin-top:6px"><div class="hint">尚未运行。提取完成后此处显示统计与预览图。</div></div>
     </div>
   </section>
 
   <!-- ══════ 变化比对 ══════ -->
-  <section id="tab-cmp" class="tabsec" hidden>
+  <section id="tab-cmp" class="page" style="--ac:var(--amber)" hidden>
+    <div class="page-head">
+      <span class="ph-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
+      <div class="ph-tt">
+        <span class="t1">变化比对</span>
+        <span class="t2">自动提取成果与存量地图做要素级比对，免选输出目录——结果直接在此查看，自动留档到存量旁</span>
+        <div class="steps">
+          <span class="step"><b>1</b>选择新成果 GDB</span><span class="step-arrow">→</span>
+          <span class="step"><b>2</b>选择存量 GDB</span><span class="step-arrow">→</span>
+          <span class="step"><b>3</b>开始比对</span>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" id="cmpRunBtn">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始比对</button>
+    </div>
+
     <div class="card">
       <div class="card-head">
-        <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
-        <div class="ht"><span class="t1">变化比对</span><span class="t2">自动提取成果与存量地图要素级比对，输出 新增/灭失/改动 变化图层</span></div>
-        <span class="spacer"></span>
-        <button class="primary big" id="cmpRunBtn">
-          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始比对</button>
+        <span class="ticon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+        <div class="ht"><span class="t1">比对设置</span><span class="t2">按几何类型自动配对图层：线↔线 · 面↔面 · 点↔点</span></div>
       </div>
       <div class="cfg-grid">
         <div class="cfg-field w1">
           <label>新成果 GDB</label>
           <div class="path-row">
             <input type="text" id="cmpNew" placeholder="自动提取生成的 .gdb 目录" />
-            <button class="primary sm" id="browseCmpNew" type="button">选择</button>
+            <button class="btn sm" id="browseCmpNew" type="button">选择</button>
           </div>
         </div>
         <div class="cfg-field w1">
           <label>存量 GDB</label>
           <div class="path-row">
             <input type="text" id="cmpStock" placeholder="存量地图 .gdb 目录" />
-            <button class="primary sm" id="browseCmpStock" type="button">选择</button>
+            <button class="btn sm" id="browseCmpStock" type="button">选择</button>
           </div>
         </div>
         <div class="cfg-field w1">
-          <label>输出目录</label>
-          <div class="path-row">
-            <input type="text" id="cmpOut" placeholder="变化成果保存位置" />
-            <button class="primary sm" id="browseCmpOut" type="button">选择</button>
-          </div>
-        </div>
-        <div class="cfg-field w1">
-          <label>底图 TIF（可选，用于预览渲染）</label>
+          <label>底图 TIF<span class="opt">（可选，用于叠加渲染）</span></label>
           <div class="path-row">
             <input type="text" id="cmpTif" placeholder="正射影像 .tif，可留空" />
-            <button class="primary sm" id="browseCmpTif" type="button">选择</button>
+            <button class="btn sm" id="browseCmpTif" type="button">选择</button>
           </div>
         </div>
       </div>
-      <div id="cmpHint" class="hint">比对按几何类型自动配对图层：线↔线（标线）、面↔面（面状标线）、点↔点（标志设施）</div>
+      <div id="cmpHint" class="hint">无需选择输出目录：比对结果现场展示，并自动留档到「存量 GDB 同级 / 变化比对_时间戳」目录</div>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-        <div class="ht"><span class="t1">比对进度</span></div>
-        <span class="spacer"></span>
-        <span id="cmpChip" class="chip idle">待机</span>
+    <div class="grid2">
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+            <div class="ht"><span class="t1">比对进度</span></div>
+            <span class="spacer"></span>
+            <span id="cmpChip" class="chip idle">待机</span>
+          </div>
+          <div id="cmpLog" class="log auto" style="margin-top:13px"></div>
+        </div>
       </div>
-      <div id="cmpLog" class="log" style="margin-top:4px"></div>
-    </div>
 
-    <div class="card">
-      <div class="card-head">
-        <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-        <div class="ht"><span class="t1">比对结果</span><span class="t2">变化统计（绿色=新增 红=灭失 橙=改动，最终以人工内业确认为准）</span></div>
-        <span class="spacer"></span>
-        <button class="primary sm" id="cmpOpenOut" type="button">打开输出目录</button>
+      <div class="col">
+        <div class="card">
+          <div class="card-head">
+            <span class="ticon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+            <div class="ht"><span class="t1">比对结果</span><span class="t2">绿色=新增 · 红=灭失 · 橙=改动（以人工内业确认为准）</span></div>
+            <span class="spacer"></span>
+            <button class="btn sm" id="cmpOpenOut" type="button" style="display:none">打开留档目录</button>
+          </div>
+          <div id="cmpResult" style="margin-top:8px">
+            <div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg><br/>尚未运行。比对完成后此处显示变化统计与预览图。</div>
+          </div>
+        </div>
       </div>
-      <div id="cmpResult" style="margin-top:6px"><div class="hint">尚未运行。比对完成后此处显示变化统计与预览图。</div></div>
     </div>
   </section>
 </main>
+</div>
 
 <div id="toast"></div>
 
 <script>
-/* ---------- 基础设施 ---------- */
-function call(name, ...args) { return window.pywebview.api[name](...args); }
+/* ══════════ 基础设施 ══════════ */
+function call(name, ...args) {
+  if (!window.pywebview || !window.pywebview.api) return Promise.reject(new Error('backend not ready'));
+  return window.pywebview.api[name](...args);
+}
 function el(id) { return document.getElementById(id); }
 let toastTimer = null;
 function toast(msg, kind) {
@@ -545,7 +654,7 @@ function toast(msg, kind) {
   t.innerHTML = ico + '<span>' + msg + '</span>';
   t.className = (kind || 'good') + ' show';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
 function fmtElapsed(ms) {
   const s = Math.floor(ms / 1000);
@@ -556,28 +665,57 @@ const ICONS = {
   failed: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
   pending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8"/></svg>',
 };
-
-/* ---------- 状态 ---------- */
-let runStartTs = 0, elapsedTimer = null, fileFilter = 'all';
-const CHIP = { idle: ['idle', '待机'], run: ['run', '解译中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
-function setChip(state) {
-  const [cls, text] = CHIP[state] || CHIP.idle;
-  el('stateChip').className = 'chip ' + cls;
-  el('stateChip').textContent = text;
+/* 日志按语义着色 */
+function logLineClass(s) {
+  if (/^ERR|^失败|失败$|中断/.test(s)) return 'err';
+  if (/完成|成功|PASS/.test(s)) return 'ok';
+  if (/走廊|裁剪|范围|GDB|图层|要素/.test(s)) return 'info';
+  if (/警告|WARN|跳过/.test(s)) return 'warn';
+  return '';
+}
+function logAppend(box, logs, ref) {
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  if (logs.length < ref.n) { box.innerHTML = ''; ref.n = 0; }
+  if (logs.length > ref.n) {
+    const frag = document.createDocumentFragment();
+    for (const line of logs.slice(ref.n)) {
+      const d = document.createElement('span');
+      d.className = 'l ' + logLineClass(line);
+      d.textContent = line;
+      frag.appendChild(d);
+    }
+    box.appendChild(frag);
+    ref.n = logs.length;
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
 }
 
-window.addEventListener('pywebviewready', async () => {
-  const st = await call('model_status');
-  if (st.available) {
-    el('modelDot').className = 'dot ok';
-    el('modelText').textContent = '检测模型已就绪';
-  } else {
-    el('modelDot').className = 'dot no';
-    el('modelText').textContent = '模型缺失，仅提取车道线';
-  }
+/* ══════════ 导航 ══════════ */
+document.querySelectorAll('.nav button').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.nav button').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    document.querySelectorAll('.page').forEach(s => s.hidden = true);
+    el('tab-' + t.dataset.tab).hidden = false;
+    document.querySelector('.wrap main').scrollTop = 0;
+  };
 });
 
-/* ---------- 目录选择 / 打开 ---------- */
+/* ══════════ 模型状态 ══════════ */
+window.addEventListener('pywebviewready', async () => {
+  try {
+    const st = await call('model_status');
+    if (st.available) {
+      el('modelDot').className = 'dot ok';
+      el('modelText').textContent = '检测模型已就绪';
+    } else {
+      el('modelDot').className = 'dot no';
+      el('modelText').textContent = '模型缺失，仅提取车道线';
+    }
+  } catch (e) { el('modelText').textContent = '后端未就绪'; }
+});
+
+/* ══════════ 选择 / 打开 ══════════ */
 async function pickDir(inputId, title) {
   try {
     const r = await call('pick_folder', title);
@@ -586,63 +724,76 @@ async function pickDir(inputId, title) {
   } catch (e) { toast('无法打开目录选择器：' + e, 'err'); }
   return null;
 }
-async function openOutDir() {
-  const p = el('outDir').value.trim();
-  if (!p) { toast('请先选择输出目录', 'err'); return; }
-  const r = await call('open_folder', p);
-  if (!r.ok) toast(r.error || '打开失败', 'err');
+async function pickFile(inputId, title, ext) {
+  try {
+    const r = await call('pick_file', title, ext || []);
+    if (r && r.ok && r.path) { el(inputId).value = r.path; return r.path; }
+    if (r && r.error) toast('无法打开文件选择器：' + r.error, 'err');
+  } catch (e) { toast('无法打开文件选择器：' + e, 'err'); }
+  return null;
 }
+async function openDir(p) {
+  if (!p) { toast('目录不存在，请先运行任务', 'err'); return; }
+  const r = await call('open_folder', p);
+  if (r && !r.ok) toast(r.error || '打开失败', 'err');
+}
+
 el('browseData').onclick = async () => { if (await pickDir('dataDir', '选择数据源目录')) scanDir(); };
 el('browseOut').onclick = () => pickDir('outDir', '选择输出目录');
-el('openOut2').onclick = openOutDir;
-el('openLog').onclick = openOutDir;
+el('browseDomTif').onclick = () => pickFile('domTif', '选择正射影像 TIF', ['.tif', '.tiff']);
+el('browseDomOut').onclick = () => pickDir('domOut', '选择输出目录');
+el('browseDomStock').onclick = () => pickDir('domStock', '选择存量 GDB 目录');
+el('browseCmpNew').onclick = () => pickDir('cmpNew', '选择新成果 GDB 目录');
+el('browseCmpStock').onclick = () => pickDir('cmpStock', '选择存量 GDB 目录');
+el('browseCmpTif').onclick = () => pickFile('cmpTif', '选择底图 TIF', ['.tif', '.tiff']);
+el('openOut2').onclick = () => openDir(el('outDir').value.trim());
+el('openLog').onclick = () => openDir(el('outDir').value.trim());
+el('domOpenOut').onclick = () => openDir(el('domOut').value.trim() || (lastDomResult && lastDomResult.gdb ? lastDomResult.gdb : ''));
+el('cmpOpenOut').onclick = () => openDir(lastCmpOut);
 
-/* ---------- 扫描 ---------- */
+/* ══════════ 车载影像提取 ══════════ */
 let lastScan = { dir: '', matched: -1 };
 async function scanDir() {
   const d = el('dataDir').value.trim();
   const info = el('scanInfo');
-  if (!d) { info.textContent = '请选择数据源目录'; info.className = 'hint'; return; }
+  if (!d) { info.textContent = '数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录'; info.className = 'hint'; return; }
   if (lastScan.dir === d && lastScan.matched >= 0) return;
   info.textContent = '正在扫描数据源…';
   info.className = 'hint';
-  const r = await call('scan_directory', d);
-  lastScan = { dir: d, matched: r.matched };
-  if (r.error) {
-    info.textContent = '扫描失败：' + r.error; info.className = 'hint err';
-    el('runBtn').disabled = true; return;
-  }
-  info.textContent = `影像 ${r.images} · 位姿 ${r.poses} · 可配对 ${r.matched}`;
-  info.className = 'hint' + (r.matched > 0 ? ' ok' : '');
-  el('runBtn').disabled = r.matched === 0;
-  if (r.matched === 0) info.textContent += '，请检查目录结构';
+  try {
+    const r = await call('scan_directory', d);
+    lastScan = { dir: d, matched: r.matched };
+    if (r.error) {
+      info.textContent = '扫描失败：' + r.error; info.className = 'hint err';
+      el('runBtn').disabled = true; return;
+    }
+    info.textContent = `影像 ${r.images} · 位姿 ${r.poses} · 可配对 ${r.matched}` + (r.matched === 0 ? '，请检查目录结构' : '');
+    info.className = 'hint' + (r.matched > 0 ? ' ok' : '');
+    el('runBtn').disabled = r.matched === 0;
+  } catch (e) { info.textContent = '后端未就绪'; info.className = 'hint err'; }
 }
 el('dataDir').addEventListener('change', () => { lastScan = { dir: '', matched: -1 }; scanDir(); });
 el('dataDir').addEventListener('keydown', e => { if (e.key === 'Enter') { lastScan = { dir: '', matched: -1 }; scanDir(); } });
 
-/* ---------- 筛选 ---------- */
-document.querySelectorAll('.fchip').forEach(c => {
-  c.onclick = () => {
-    document.querySelectorAll('.fchip').forEach(x => x.classList.remove('on'));
-    c.classList.add('on');
-    fileFilter = c.dataset.f;
-    renderFiles(lastFiles, lastCurrent);
-  };
-});
+let runStartTs = 0, elapsedTimer = null, fileFilter = 'all';
+const CHIP = { idle: ['idle', '待机'], run: ['run', '提取中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
+function setChip(state) {
+  const [cls, text] = CHIP[state] || CHIP.idle;
+  el('stateChip').className = 'chip ' + cls;
+  el('stateChip').textContent = text;
+}
 
-/* ---------- 启动解译 ---------- */
 el('runBtn').onclick = async () => {
   const dataDir = el('dataDir').value.trim();
   const outDir = el('outDir').value.trim();
   if (!dataDir || !outDir) { toast('请先选择数据源目录与输出目录', 'err'); return; }
   await scanDir();
   if (lastScan.matched === 0) { toast('数据源中没有可配对的影像', 'err'); return; }
-
-  const r = await call('start_pipeline', dataDir, outDir,
-    parseFloat(el('conf').value), parseInt(el('maxImg').value, 10) || null,
-    el('shp').checked, el('gdb').checked);
+  let r;
+  try { r = await call('start_pipeline', dataDir, outDir,
+        parseFloat(el('conf').value), parseInt(el('maxImg').value, 10) || null); }
+  catch (e) { toast('启动失败：' + e, 'err'); return; }
   if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
-
   runStartTs = Date.now();
   setChip('run');
   el('errBox').style.display = 'none';
@@ -652,8 +803,7 @@ el('runBtn').onclick = async () => {
   poll();
 };
 
-/* ---------- 轮询 ---------- */
-let lastFiles = [], lastCurrent = '', lastLogCount = 0;
+let lastFiles = [], lastLogRef = { n: 0 };
 function poll() {
   const timer = setInterval(async () => {
     let s;
@@ -668,21 +818,9 @@ function poll() {
     el('tOk').textContent = okN;
     el('tBad').textContent = badN;
     el('fCount').textContent = s.total ? `${okN + badN} / ${s.total}` : '';
-    // 日志：增量追加，保留用户选区；仅在贴底时自动滚动
-    const log = el('log');
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
-    if (s.logs.length < lastLogCount) {          // 新一轮运行，重置
-      log.textContent = s.logs.join('\n');
-      lastLogCount = s.logs.length;
-    } else if (s.logs.length > lastLogCount) {
-      const delta = s.logs.slice(lastLogCount);
-      log.textContent += (log.textContent ? '\n' : '') + delta.join('\n');
-      lastLogCount = s.logs.length;
-      if (atBottom) log.scrollTop = log.scrollHeight;
-    }
-    lastFiles = s.files || []; lastCurrent = s.current;
-    renderFiles(lastFiles, lastCurrent);
-
+    logAppend(el('log'), s.logs || [], lastLogRef);
+    lastFiles = s.files || [];
+    renderFiles(lastFiles, s.current);
     if (s.state === 'done' || s.state === 'error') {
       clearInterval(timer); clearInterval(elapsedTimer);
       el('tTime').textContent = fmtElapsed(Date.now() - runStartTs);
@@ -691,27 +829,30 @@ function poll() {
         setChip('fail');
         el('errBox').style.display = 'block';
         el('errBox').textContent = s.error || '发生未知错误';
-        toast('解译失败', 'err');
+        toast('提取失败', 'err');
       } else {
         setChip('done');
-        toast(`解译完成，成功 ${okN} 张` + (badN ? `，失败 ${badN} 张` : ''), 'good');
+        toast(`提取完成，成功 ${okN} 张` + (badN ? `，失败 ${badN} 张` : ''), 'good');
         if (s.result) showResult(s.result);
       }
     }
   }, 400);
 }
 
-/* ---------- 文件队列 ---------- */
-const CATS_ORDER = ['动态障碍', '交通标志', '信号灯', '路侧设施'];
-function catsText(cats) {
-  const parts = CATS_ORDER.filter(c => cats && cats[c] > 0).map(c => `${c} ${cats[c]}`);
-  return parts.length ? parts.join(' · ') : '目标 0';
+/* 文件队列 */
+const CATS = [['动态障碍', 'c0'], ['交通标志', 'c1'], ['信号灯', 'c2'], ['路侧设施', 'c3']];
+function catChips(cats) {
+  const parts = CATS.filter(([n]) => cats && cats[n] > 0)
+    .map(([n, c]) => `<span class="catchip ${c}">${n} ${cats[n]}</span>`);
+  return parts.length ? `<span class="catchips">${parts.join('')}</span>` : '<span class="catchips"></span>';
 }
 function renderFiles(files, current) {
   const box = el('fileList');
-  if (!files.length) { box.innerHTML = ''; return; }
+  if (!files.length) {
+    box.innerHTML = '<div class="frow" style="color:var(--ink-4);justify-content:center">选择数据源并开始提取后，此处展示文件队列</div>';
+    return;
+  }
   const keepScroll = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  // 同名文件出现在多个批次时，显示批次标识
   const nameCount = {};
   for (const f of files) nameCount[f.name] = (nameCount[f.name] || 0) + 1;
   const multiSession = new Set(files.map(f => f.session)).size > 1;
@@ -723,7 +864,6 @@ function renderFiles(files, current) {
   let html = '';
   for (const f of shown) {
     const running = f.status === 'pending' && f.name === current;
-    const cls = running ? 'running' : f.status;
     let ic, tag;
     if (f.status === 'done') { ic = ICONS.done; tag = '<span class="ftag done">完成</span>'; }
     else if (f.status === 'failed') { ic = ICONS.failed; tag = '<span class="ftag failed">失败</span>'; }
@@ -732,114 +872,62 @@ function renderFiles(files, current) {
     const sess = (multiSession || nameCount[f.name] > 1) && f.session
       ? `<span class="fsess" title="批次：${f.session}">${f.session}</span>` : '';
     const tip = f.session ? ` title="${f.session} / ${f.name}"` : '';
-    const meta = f.status === 'done' ? catsText(f.cats) : '';
-    html += `<div class="frow"${tip}><span class="fic ${cls}">${ic}</span>${sess}<span class="fname">${f.name}</span><span class="fmeta">${meta}</span>${tag}</div>`;
+    const meta = f.status === 'done' ? catChips(f.cats) : '';
+    html += `<div class="frow"${tip}><span class="fic ${running ? 'running' : f.status}">${ic}</span>${sess}<span class="fname">${f.name}</span>${meta}${tag}</div>`;
   }
   box.innerHTML = html || '<div class="frow" style="color:var(--ink-3)">该筛选下暂无文件</div>';
   if (keepScroll) box.scrollTop = box.scrollHeight;
 }
+document.querySelectorAll('.fchip').forEach(c => {
+  c.onclick = () => {
+    document.querySelectorAll('.fchip').forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+    fileFilter = c.dataset.f;
+    renderFiles(lastFiles, '');
+  };
+});
 
-/* ---------- 结果 ---------- */
 function showResult(r) {
   let html = '<table><tr><th>批次</th><th>动态障碍</th><th>交通标志</th><th>信号灯</th><th>路侧设施</th><th>车道线</th></tr>';
   for (const [k, v] of Object.entries(r.per_session)) {
     const c = v.cats || {};
     html += `<tr><td>${k}</td>`
-      + CATS_ORDER.map(n => `<td><span class="num">${c[n] || 0}</span></td>`).join('')
+      + CATS.map(([n]) => `<td><span class="num">${c[n] || 0}</span></td>`).join('')
       + `<td><span class="num">${v.lane}</span></td></tr>`;
   }
   html += '</table>';
-  html += `<div class="hint">时序变化要素 ${r.change_count} 条</div>`;
-  if (r.change_path) html += `<div class="hint">${r.change_path}</div>`;
+  html += `<div class="pathline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8.6a1 1 0 0 1-.83-.45L9.4 4.45A1 1 0 0 0 8.57 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/></svg><span class="p">${r.output_dir}${r.change_path ? ' · 变化: ' + r.change_path : ''}</span></div>`;
   el('resultBody').innerHTML = html;
 }
-/* ---------- 标签页 ---------- */
-document.querySelectorAll('.tab').forEach(t => {
-  t.onclick = () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
-    t.classList.add('on');
-    document.querySelectorAll('.tabsec').forEach(s => s.hidden = true);
-    el('tab-' + t.dataset.tab).hidden = false;
-  };
-});
 
-/* ---------- 正射影像提取 ---------- */
-async function pickFile(inputId, title, ext) {
-  try {
-    const r = await call('pick_file', title, ext || []);
-    if (r && r.ok && r.path) { el(inputId).value = r.path; return r.path; }
-    if (r && r.error) toast('无法打开文件选择器：' + r.error, 'err');
-  } catch (e) { toast('无法打开文件选择器：' + e, 'err'); }
-  return null;
-}
-el('browseDomTif').onclick = () => pickFile('domTif', '选择正射影像 TIF', ['.tif', '.tiff']);
-el('browseDomOut').onclick = () => pickDir('domOut', '选择输出目录');
-el('browseDomStock').onclick = () => pickDir('domStock', '选择存量 GDB 目录');
-el('browseCmpNew').onclick = () => pickDir('cmpNew', '选择新成果 GDB 目录');
-el('browseCmpStock').onclick = () => pickDir('cmpStock', '选择存量 GDB 目录');
-el('browseCmpOut').onclick = () => pickDir('cmpOut', '选择输出目录');
-el('browseCmpTif').onclick = () => pickFile('cmpTif', '选择底图 TIF', ['.tif', '.tiff']);
-el('domOpenOut').onclick = async () => {
-  const p = el('domOut').value.trim();
-  if (!p) { toast('请先选择输出目录', 'err'); return; }
-  await call('open_folder', p);
-};
-el('cmpOpenOut').onclick = async () => {
-  const p = el('cmpOut').value.trim();
-  if (!p) { toast('请先选择输出目录', 'err'); return; }
-  await call('open_folder', p);
-};
-
+/* ══════════ 正射影像提取 ══════════ */
 const DOM_CHIP = { idle: ['idle', '待机'], run: ['run', '提取中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
 const CMP_CHIP = { idle: ['idle', '待机'], run: ['run', '比对中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
-let domRunTs = 0, cmpRunTs = 0;
-
-el('domRunBtn').onclick = async () => {
-  const tif = el('domTif').value.trim(), out = el('domOut').value.trim();
-  if (!tif) { toast('请选择正射影像 TIF 文件', 'err'); return; }
-  if (!out) { toast('请选择输出目录', 'err'); return; }
-  const r = await call('start_dom', tif, out, el('domStock').value.trim() || null,
-    parseFloat(el('domMinLen').value) || 2.0, el('domClip').checked,
-    el('domCorridor').checked);
-  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
-  el('domRunBtn').disabled = true;
-  domRunTs = Date.now();
-  setChip2('domChip', DOM_CHIP, 'run');
-  pollDom();
-};
-
-el('cmpRunBtn').onclick = async () => {
-  const ng = el('cmpNew').value.trim(), sg = el('cmpStock').value.trim(), out = el('cmpOut').value.trim();
-  if (!ng) { toast('请选择新成果 GDB', 'err'); return; }
-  if (!sg) { toast('请选择存量 GDB', 'err'); return; }
-  if (!out) { toast('请选择输出目录', 'err'); return; }
-  const r = await call('start_compare', ng, sg, out, el('cmpTif').value.trim() || null);
-  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
-  el('cmpRunBtn').disabled = true;
-  cmpRunTs = Date.now();
-  setChip2('cmpChip', CMP_CHIP, 'run');
-  pollCmp();
-};
-
 function setChip2(id, chips, state) {
   const [cls, text] = chips[state] || chips.idle;
   const c = el(id);
   c.className = 'chip ' + cls;
   c.textContent = text;
 }
+let lastDomResult = null, lastCmpOut = '';
 
-function logAppend(box, logs, lastCountRef) {
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  if (logs.length < lastCountRef.n) { box.textContent = logs.join('\n'); }
-  else if (logs.length > lastCountRef.n) {
-    box.textContent += (box.textContent ? '\n' : '') + logs.slice(lastCountRef.n).join('\n');
-    if (atBottom) box.scrollTop = box.scrollHeight;
-  }
-  lastCountRef.n = logs.length;
-}
+el('domRunBtn').onclick = async () => {
+  const tif = el('domTif').value.trim(), out = el('domOut').value.trim();
+  if (!tif) { toast('请选择正射影像 TIF 文件', 'err'); return; }
+  if (!out) { toast('请选择输出目录', 'err'); return; }
+  let r;
+  try { r = await call('start_dom', tif, out, el('domStock').value.trim() || null,
+        parseFloat(el('domMinLen').value) || 2.0, el('domClip').checked,
+        el('domCorridor').checked); }
+  catch (e) { toast('启动失败：' + e, 'err'); return; }
+  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
+  el('domRunBtn').disabled = true;
+  setChip2('domChip', DOM_CHIP, 'run');
+  pollDom();
+};
 
+const domLogRef = { n: 0 };
 function pollDom() {
-  const ref = { n: 0 };
   const timer = setInterval(async () => {
     let s;
     try { s = await call('get_dom_status'); } catch (e) { return; }
@@ -847,7 +935,7 @@ function pollDom() {
     el('domPct').innerHTML = pct + '<small>%</small>';
     el('domPctSub').textContent = `${s.progress || 0} / ${s.total || 0}`;
     el('domBar').style.width = pct + '%';
-    logAppend(el('domLog'), s.logs || [], ref);
+    logAppend(el('domLog'), s.logs || [], domLogRef);
     if (s.state === 'done' || s.state === 'error') {
       clearInterval(timer);
       el('domRunBtn').disabled = false;
@@ -864,17 +952,6 @@ function pollDom() {
   }, 500);
 }
 
-function showDomResult(r) {
-  if (!r) return;
-  let html = `<table><tr><th>标线（条）</th><th>面状标线（个）</th><th>耗时（秒）</th></tr>
-    <tr><td><span class="num">${r.lines}</span></td><td><span class="num">${r.areas}</span></td>
-    <td><span class="num">${r.seconds}</span></td></tr></table>`;
-  if (r.gdb) html += `<div class="hint">GDB：${r.gdb}</div>`;
-  (r.shp || []).forEach(p => { html += `<div class="hint">SHP：${p}</div>`; });
-  el('domResult').innerHTML = html;
-  if (r.preview) el('domResult').appendChild(localImg(r.preview));
-}
-
 function localImg(path) {
   const img = new Image();
   const p = path.replace(/\\/g, '/');
@@ -884,14 +961,37 @@ function localImg(path) {
   return img;
 }
 
-function call2dataurl(path) { return path; }
+function showDomResult(r) {
+  if (!r) return;
+  lastDomResult = r;
+  const stat = (k, v) => `<div class="stat same"><div class="k">${k}</div><div class="v num">${v}</div></div>`;
+  let html = `<div class="stat4">${stat('标线（条）', r.lines)}${stat('面状标线（个）', r.areas)}${stat('耗时（秒）', r.seconds)}</div>`;
+  if (r.gdb) html += `<div class="pathline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="p">${r.gdb}</span></div>`;
+  el('domResult').innerHTML = html;
+  if (r.preview) el('domResult').appendChild(localImg(r.preview));
+}
 
+/* ══════════ 变化比对 ══════════ */
+el('cmpRunBtn').onclick = async () => {
+  const ng = el('cmpNew').value.trim(), sg = el('cmpStock').value.trim();
+  if (!ng) { toast('请选择新成果 GDB', 'err'); return; }
+  if (!sg) { toast('请选择存量 GDB', 'err'); return; }
+  let r;
+  try { r = await call('start_compare', ng, sg, el('cmpTif').value.trim() || null); }
+  catch (e) { toast('启动失败：' + e, 'err'); return; }
+  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
+  if (r.output_dir) lastCmpOut = r.output_dir;
+  el('cmpRunBtn').disabled = true;
+  setChip2('cmpChip', CMP_CHIP, 'run');
+  pollCmp();
+};
+
+const cmpLogRef = { n: 0 };
 function pollCmp() {
-  const ref = { n: 0 };
   const timer = setInterval(async () => {
     let s;
     try { s = await call('get_cmp_status'); } catch (e) { return; }
-    logAppend(el('cmpLog'), s.logs || [], ref);
+    logAppend(el('cmpLog'), s.logs || [], cmpLogRef);
     if (s.state === 'done' || s.state === 'error') {
       clearInterval(timer);
       el('cmpRunBtn').disabled = false;
@@ -911,20 +1011,25 @@ function pollCmp() {
 function showCmpResult(r) {
   if (!r) return;
   const t = r.totals || {};
+  const by = r.by_kind || {};
+  const stat = (cls, k, v) => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v num">${v}</div></div>`;
+  let html = `<div class="stat4">${stat('same', '匹配', t.matched || 0)}${stat('new', '疑似新增', t.new || 0)}${stat('miss', '疑似灭失', t.missing || 0)}${stat('mod', '疑似改动', t.modified || 0)}</div>`;
   const K = [['lines', '标线'], ['areas', '面状标线'], ['points', '点要素']];
-  let html = '<table><tr><th>类别</th><th>匹配</th><th>疑似新增</th><th>疑似灭失</th><th>疑似改动</th></tr>';
+  html += '<table style="margin-top:10px"><tr><th>类别</th><th>匹配</th><th>疑似新增</th><th>疑似灭失</th><th>疑似改动</th></tr>';
   for (const [k, cn] of K) {
-    const v = (r.by_kind || {})[k];
+    const v = by[k];
     if (!v) continue;
     if (v.skipped) { html += `<tr><td>${cn}</td><td colspan="4" style="color:var(--ink-3)">新成果无此类要素，跳过</td></tr>`; continue; }
     html += `<tr><td>${cn}</td><td><span class="num">${v.matched}</span></td><td><span class="num">${v.new}</span></td><td><span class="num">${v.missing}</span></td><td><span class="num">${v.modified}</span></td></tr>`;
   }
-  html += `<tr><td><b>合计</b></td><td><span class="num">${t.matched || 0}</span></td><td><span class="num">${t.new || 0}</span></td><td><span class="num">${t.missing || 0}</span></td><td><span class="num">${t.modified || 0}</span></td></tr>`;
   html += '</table>';
-  if (r.change_gdb) html += `<div class="hint">变化 GDB：${r.change_gdb}</div>`;
-  (r.shp || []).slice(0, 3).forEach(p => { html += `<div class="hint">SHP：${p}</div>`; });
-  html += `<div class="hint">报告：${r.change_gdb ? r.change_gdb.replace('变化比对.gdb', '比对报告.json') : ''}</div>`;
+  if (r.change_gdb) {
+    const outDir = r.change_gdb.replace(/[\\/]变化比对\.gdb$/, '');
+    if (outDir) lastCmpOut = outDir;
+    html += `<div class="pathline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span class="p">${r.change_gdb} · 比对报告.json</span></div>`;
+  }
   el('cmpResult').innerHTML = html;
+  if (el('cmpOpenOut')) el('cmpOpenOut').style.display = lastCmpOut ? 'inline-flex' : 'none';
   if (r.preview) el('cmpResult').appendChild(localImg(r.preview));
 }
 </script>

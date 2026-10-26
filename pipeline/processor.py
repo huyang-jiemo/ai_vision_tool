@@ -83,10 +83,11 @@ class Pipeline:
         use_fisheye = cfg.use_fisheye if use_fisheye is None else use_fisheye
         enable_change = cfg.enable_change_detection if enable_change is None else enable_change
         out = Path(output_dir)
-        # 输出三分区：preview 标注预览 / shp 矢量 / gdb 矢量地理数据库
+        # 输出分区：preview 标注预览 / shp 矢量（gdb 仅在需要时创建）
         (out / "preview").mkdir(parents=True, exist_ok=True)
         (out / "shp").mkdir(parents=True, exist_ok=True)
-        (out / "gdb").mkdir(parents=True, exist_ok=True)
+        if export_gdb:
+            (out / "gdb").mkdir(parents=True, exist_ok=True)
         proj = DataProject.load(data_dir)
 
         matched = proj.matched

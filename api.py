@@ -61,13 +61,20 @@ class Api:
             return {"ok": False, "path": "", "error": str(e)}
 
     def pick_file(self, title="选择文件", file_types=None):
-        """弹出系统文件选择对话框。file_types: [".tif", ".tiff"]"""
+        """弹出系统文件选择对话框。file_types: [".tif", ".tiff"]
+
+        pywebview 过滤器格式硬校验：'描述 (*.a;*.b)'，描述仅允许字母/数字/汉字/空格，
+        且描述与括号之间不能有空格，否则抛 'not a valid file filter'。
+        """
         import webview
         try:
             if not webview.windows:
                 return {"ok": False, "path": "", "error": "窗口尚未就绪"}
-            ft = list(file_types or [])
-            patterns = ["*{} (*{})".format(e, e) for e in ft] + ["所有文件 (*.*)"]
+            exts = [e if e.startswith(".") else "." + e for e in (file_types or [])]
+            patterns = []
+            if exts:
+                patterns.append("文件 (*{})".format(";*".join(exts)))
+            patterns.append("所有文件 (*.*)")
             result = webview.windows[0].create_file_dialog(
                 webview.OPEN_DIALOG, allow_multiple=False, file_types=patterns)
             if result:
@@ -109,7 +116,8 @@ class Api:
             return {"images": 0, "poses": 0, "matched": 0, "sample": "", "error": str(e)}
 
     def start_pipeline(self, data_dir, output_dir, conf=0.20, max_images=None,
-                       export_shp=True, export_gdb=True):
+                       export_shp=True, export_gdb=False):
+        """车载影像提取：输出 SHP（export_gdb 默认关闭，按需求只交付 SHP）。"""
         if self.state.state == "running":
             return {"started": False, "error": "已在运行中"}
         t = threading.Thread(
@@ -217,18 +225,21 @@ class Api:
                     pass
 
     # ---- 变化比对 ----
-    def start_compare(self, new_gdb, stock_gdb, output_dir, dom_tif=None):
+    def start_compare(self, new_gdb, stock_gdb, dom_tif=None):
+        """变化比对：无需选择输出目录，自动写到存量 GDB 同级的 变化比对_时间戳/。"""
         if self.cmp_state.state == "running":
             return {"started": False, "error": "比对正在运行中"}
         if not new_gdb or not os.path.exists(new_gdb):
             return {"started": False, "error": "新成果 GDB 不存在"}
         if not stock_gdb or not os.path.exists(stock_gdb):
             return {"started": False, "error": "存量 GDB 不存在"}
+        parent = os.path.dirname(os.path.abspath(stock_gdb)) or os.path.expanduser("~")
+        out_dir = os.path.join(parent, "变化比对_" + time.strftime("%Y%m%d_%H%M%S"))
         t = threading.Thread(target=self._run_compare,
-                             args=(new_gdb, stock_gdb, output_dir, dom_tif),
+                             args=(new_gdb, stock_gdb, out_dir, dom_tif),
                              daemon=True)
         t.start()
-        return {"started": True}
+        return {"started": True, "output_dir": out_dir}
 
     def get_cmp_status(self):
         with self.cmp_state.lock:
@@ -249,7 +260,8 @@ class Api:
             st.state, st.progress, st.total = "running", 0, 0
             st.logs, st.result, st.error = [], None, None
         log_fh = self._open_job_log(st, output_dir, "变化比对",
-                                    f"新成果: {new_gdb}\n存量: {stock_gdb}\n输出: {output_dir}")
+                                    f"新成果: {new_gdb}\n存量: {stock_gdb}\n"
+                                    f"输出: {output_dir}（自动生成，无需选择）")
         wlog = self._wlog(st, log_fh)
 
         def cb(i, total, msg):
@@ -337,10 +349,10 @@ class Api:
             ts = time.strftime("%Y%m%d_%H%M%S")
             log_path = os.path.join(output_dir, f"{ts}.log")
             log_fh = open(log_path, "a", encoding="utf-8")
-            log_fh.write(f"==== 众源感知自动解译 {ts} ====\n")
+            log_fh.write(f"==== 车载影像提取 {ts} ====\n")
             log_fh.write(f"数据源: {data_dir}\n输出目录: {output_dir}\n"
                          f"置信度阈值: {conf} 最大影像数: {max_images or '不限'} "
-                         f"导出SHP: {export_shp} 导出GDB: {export_gdb}\n\n")
+                         f"导出: SHP\n\n")
             log_fh.flush()
         except Exception:
             log_fh = None
@@ -422,7 +434,7 @@ class Api:
                               for c in BUSINESS_CATEGORIES)
             wlog(f"解译完成：{len(res.per_session)} 个批次，目标 {total_det}（{detail}），"
                  f"车道线 {total_lane}，时序变化 {res.change_count}")
-            wlog(f"成果目录: {res.output_dir}（preview/ 标注预览 · shp/ 矢量 · gdb/ 地理数据库）")
+            wlog(f"成果目录: {res.output_dir}（preview/ 标注预览 · shp/ 矢量 SHP）")
         except Exception as e:
             with self.state.lock:
                 self.state.state = "error"
