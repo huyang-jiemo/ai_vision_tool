@@ -263,7 +263,7 @@
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
     <div class="tt"><span class="name">众源感知自动解译工具</span></div>
-    <span class="badge-ver">v0.3.1</span>
+    <span class="badge-ver">v0.3.2</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
@@ -575,7 +575,7 @@ function renderFiles(files, current) {
       ? `<span class="fsess" title="批次：${f.session}">${f.session}</span>` : '';
     const tip = f.session ? ` title="${f.session} / ${f.name}"` : '';
     const meta = f.status === 'done' ? catsText(f.cats) : '';
-    html += `<div class="frow"${tip}><span class="fic ${cls}">${ic}</span><span class="fname">${f.name}</span>${sess}<span class="fmeta">${meta}</span>${tag}</div>`;
+    html += `<div class="frow"${tip}><span class="fic ${cls}">${ic}</span>${sess}<span class="fname">${f.name}</span><span class="fmeta">${meta}</span>${tag}</div>`;
   }
   box.innerHTML = html || '<div class="frow" style="color:var(--ink-3)">该筛选下暂无文件</div>';
   if (keepScroll) box.scrollTop = box.scrollHeight;
