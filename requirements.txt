@@ -8,3 +8,4 @@ pyshp
 pywebview>=4.4
 pyogrio>=0.7
 geopandas
+rasterio>=1.3

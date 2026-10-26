@@ -31,6 +31,8 @@ class RunState:
 class Api:
     def __init__(self):
         self.state = RunState()
+        self.dom_state = RunState()   # 正射影像提取
+        self.cmp_state = RunState()   # 变化比对
         self.cfg = PipelineConfig()
         self._detector = None
         self._detector_err = None
@@ -55,6 +57,22 @@ class Api:
             if result:
                 return {"ok": True, "path": result[0]}
             return {"ok": False, "path": ""}   # 用户取消
+        except Exception as e:
+            return {"ok": False, "path": "", "error": str(e)}
+
+    def pick_file(self, title="选择文件", file_types=None):
+        """弹出系统文件选择对话框。file_types: [".tif", ".tiff"]"""
+        import webview
+        try:
+            if not webview.windows:
+                return {"ok": False, "path": "", "error": "窗口尚未就绪"}
+            ft = list(file_types or [])
+            patterns = ["*{} (*{})".format(e, e) for e in ft] + ["所有文件 (*.*)"]
+            result = webview.windows[0].create_file_dialog(
+                webview.OPEN_DIALOG, allow_multiple=False, file_types=patterns)
+            if result:
+                return {"ok": True, "path": result[0]}
+            return {"ok": False, "path": ""}
         except Exception as e:
             return {"ok": False, "path": "", "error": str(e)}
 
@@ -122,6 +140,165 @@ class Api:
             return "data:image/jpeg;base64," + b
         except Exception:
             return ""
+
+    def read_text_file(self, path, limit=200000):
+        """读取 JSON 报告等文本文件，供前端展示。"""
+        try:
+            if not path or not os.path.isfile(path):
+                return {"ok": False, "error": "文件不存在"}
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return {"ok": True, "text": f.read(limit)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ---- 正射影像提取 ----
+    def start_dom(self, tif_path, output_dir, stock_gdb=None, min_len=2.0,
+                  use_stock_clip=True):
+        if self.dom_state.state == "running":
+            return {"started": False, "error": "正射解译正在运行中"}
+        if not tif_path or not os.path.isfile(tif_path):
+            return {"started": False, "error": "正射影像文件不存在"}
+        t = threading.Thread(target=self._run_dom,
+                             args=(tif_path, output_dir, stock_gdb, min_len, use_stock_clip),
+                             daemon=True)
+        t.start()
+        return {"started": True}
+
+    def get_dom_status(self):
+        with self.dom_state.lock:
+            return {
+                "state": self.dom_state.state,
+                "progress": self.dom_state.progress,
+                "total": self.dom_state.total,
+                "logs": self.dom_state.logs[-200:],
+                "result": self.dom_state.result,
+                "error": self.dom_state.error,
+                "log_file": self.dom_state.log_file,
+            }
+
+    def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip):
+        from pipeline.dom_extractor import DomExtractor
+        st = self.dom_state
+        with st.lock:
+            st.state, st.progress, st.total = "running", 0, 0
+            st.logs, st.result, st.error = [], None, None
+        log_fh = self._open_job_log(st, output_dir, "正射影像提取",
+                                    f"影像: {tif_path}\n输出: {output_dir}\n"
+                                    f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m")
+        wlog = self._wlog(st, log_fh)
+
+        def cb(i, total, msg):
+            with st.lock:
+                st.progress, st.total = i, total
+
+        try:
+            extractor = DomExtractor(min_len=float(min_len))
+            stock = stock_gdb if (use_stock_clip and stock_gdb
+                                  and os.path.exists(stock_gdb)) else None
+            res = extractor.run(tif_path, output_dir, stock_gdb=stock,
+                                wlog=wlog, progress_cb=cb)
+            with st.lock:
+                st.state = "done"
+                st.result = res
+        except Exception as e:
+            with st.lock:
+                st.state = "error"
+                st.error = str(e)
+            wlog("ERR: 正射提取中断 " + str(e))
+        finally:
+            if log_fh:
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
+
+    # ---- 变化比对 ----
+    def start_compare(self, new_gdb, stock_gdb, output_dir, dom_tif=None):
+        if self.cmp_state.state == "running":
+            return {"started": False, "error": "比对正在运行中"}
+        if not new_gdb or not os.path.exists(new_gdb):
+            return {"started": False, "error": "新成果 GDB 不存在"}
+        if not stock_gdb or not os.path.exists(stock_gdb):
+            return {"started": False, "error": "存量 GDB 不存在"}
+        t = threading.Thread(target=self._run_compare,
+                             args=(new_gdb, stock_gdb, output_dir, dom_tif),
+                             daemon=True)
+        t.start()
+        return {"started": True}
+
+    def get_cmp_status(self):
+        with self.cmp_state.lock:
+            return {
+                "state": self.cmp_state.state,
+                "progress": self.cmp_state.progress,
+                "total": self.cmp_state.total,
+                "logs": self.cmp_state.logs[-200:],
+                "result": self.cmp_state.result,
+                "error": self.cmp_state.error,
+                "log_file": self.cmp_state.log_file,
+            }
+
+    def _run_compare(self, new_gdb, stock_gdb, output_dir, dom_tif):
+        from pipeline.comparator import Comparator
+        st = self.cmp_state
+        with st.lock:
+            st.state, st.progress, st.total = "running", 0, 0
+            st.logs, st.result, st.error = [], None, None
+        log_fh = self._open_job_log(st, output_dir, "变化比对",
+                                    f"新成果: {new_gdb}\n存量: {stock_gdb}\n输出: {output_dir}")
+        wlog = self._wlog(st, log_fh)
+
+        def cb(i, total, msg):
+            with st.lock:
+                st.progress, st.total = i, total
+
+        try:
+            res = Comparator().run(new_gdb, stock_gdb, output_dir,
+                                   dom_tif=dom_tif or None, wlog=wlog, progress_cb=cb)
+            with st.lock:
+                st.state = "done"
+                st.result = res
+        except Exception as e:
+            with st.lock:
+                st.state = "error"
+                st.error = str(e)
+            wlog("ERR: 比对中断 " + str(e))
+        finally:
+            if log_fh:
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
+
+    # ---- 后台任务通用 ----
+    def _open_job_log(self, state, output_dir, title, header):
+        log_fh = None
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            log_path = os.path.join(output_dir, f"{ts}.log")
+            log_fh = open(log_path, "a", encoding="utf-8")
+            log_fh.write(f"==== {title} {ts} ====\n{header}\n\n")
+            log_fh.flush()
+            with state.lock:
+                state.log_file = log_path
+        except Exception:
+            log_fh = None
+            with state.lock:
+                state.log_file = ""
+        return log_fh
+
+    def _wlog(self, state, log_fh):
+        def wlog(msg):
+            with state.lock:
+                state.logs.append(msg)
+            if log_fh:
+                try:
+                    log_fh.write(time.strftime("[%H:%M:%S] ") + msg + "\n")
+                    log_fh.flush()
+                except Exception:
+                    pass
+        return wlog
 
     # ---- 内部 ----
     def _get_detector(self):

@@ -247,6 +247,18 @@
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #toast.err { color: var(--red); }
   #toast.good { color: var(--green); }
+
+  /* ══════════ 标签页 ══════════ */
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+  .tab { border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
+         font-size: 13.5px; font-weight: 500; padding: 9px 22px; border-radius: 10px 10px 0 0;
+         cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all .15s; }
+  .tab svg { width: 16px; height: 16px; }
+  .tab:hover { color: var(--primary); }
+  .tab.on { background: var(--primary-050); color: var(--primary); border-color: transparent; }
+  .tabsec { display: flex; flex-direction: column; gap: 14px; }
+  .tabsec[hidden] { display: none; }
+  .prev-img { width: 100%; border-radius: var(--r-md); border: 1px solid var(--line); margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -263,12 +275,25 @@
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
     <div class="tt"><span class="name">众源感知自动解译工具</span></div>
-    <span class="badge-ver">v0.3.2</span>
+    <span class="badge-ver">v0.4.0</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
 
 <main>
+  <div class="tabs">
+    <button class="tab on" data-tab="car" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg>
+      车载影像解译</button>
+    <button class="tab" data-tab="dom" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+      正射影像提取</button>
+    <button class="tab" data-tab="cmp" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg>
+      变化比对</button>
+  </div>
+
+  <section id="tab-car" class="tabsec">
   <!-- 上：解译配置 -->
   <div class="card">
     <div class="card-head">
@@ -370,6 +395,138 @@
       </div>
     </div>
   </div>
+  </section>
+
+  <!-- ══════ 正射影像提取 ══════ -->
+  <section id="tab-dom" class="tabsec" hidden>
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg></span>
+        <div class="ht"><span class="t1">正射影像提取</span><span class="t2">从无人机正射影像（DOM/TIF）提取车道标线与面状标线，输出 GDB</span></div>
+        <span class="spacer"></span>
+        <button class="primary big" id="domRunBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
+      </div>
+      <div class="cfg-grid">
+        <div class="cfg-field w1">
+          <label>正射影像（TIF）</label>
+          <div class="path-row">
+            <input type="text" id="domTif" placeholder="选择 DOM 正射影像 .tif 文件" />
+            <button class="primary sm" id="browseDomTif" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w1">
+          <label>输出目录</label>
+          <div class="path-row">
+            <input type="text" id="domOut" placeholder="提取结果保存位置" />
+            <button class="primary sm" id="browseDomOut" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w1">
+          <label>存量 GDB（可选，用于范围裁剪）</label>
+          <div class="path-row">
+            <input type="text" id="domStock" placeholder="选择存量地图 .gdb 目录" />
+            <button class="primary sm" id="browseDomStock" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w3">
+          <label>最短标线（米）</label>
+          <input type="number" id="domMinLen" value="2" min="0.5" step="0.5" />
+        </div>
+        <div class="checks">
+          <label class="switch"><input type="checkbox" id="domClip" checked /><span class="track"></span>按存量范围裁剪</label>
+          <label class="switch"><input type="checkbox" id="domShp" checked /><span class="track"></span>同步导出 SHP</label>
+        </div>
+      </div>
+      <div id="domHint" class="hint">提供存量 GDB 时仅处理其覆盖范围（推荐）；否则处理整幅影像</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+        <div class="ht"><span class="t1">提取进度</span><span class="t2">分块处理进度与日志</span></div>
+        <span class="spacer"></span>
+        <span id="domChip" class="chip idle">待机</span>
+      </div>
+      <div class="pct-row"><span class="pct num" id="domPct">0<small>%</small></span><span class="pct-sub num" id="domPctSub">0 / 0</span></div>
+      <div class="bar"><div id="domBar"></div></div>
+      <div id="domLog" class="log" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+        <div class="ht"><span class="t1">提取结果</span><span class="t2">标线统计与成果位置</span></div>
+        <span class="spacer"></span>
+        <button class="primary sm" id="domOpenOut" type="button">打开输出目录</button>
+      </div>
+      <div id="domResult" style="margin-top:6px"><div class="hint">尚未运行。提取完成后此处显示统计与预览图。</div></div>
+    </div>
+  </section>
+
+  <!-- ══════ 变化比对 ══════ -->
+  <section id="tab-cmp" class="tabsec" hidden>
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
+        <div class="ht"><span class="t1">变化比对</span><span class="t2">自动提取成果与存量地图要素级比对，输出 新增/灭失/改动 变化图层</span></div>
+        <span class="spacer"></span>
+        <button class="primary big" id="cmpRunBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始比对</button>
+      </div>
+      <div class="cfg-grid">
+        <div class="cfg-field w1">
+          <label>新成果 GDB</label>
+          <div class="path-row">
+            <input type="text" id="cmpNew" placeholder="自动提取生成的 .gdb 目录" />
+            <button class="primary sm" id="browseCmpNew" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w1">
+          <label>存量 GDB</label>
+          <div class="path-row">
+            <input type="text" id="cmpStock" placeholder="存量地图 .gdb 目录" />
+            <button class="primary sm" id="browseCmpStock" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w1">
+          <label>输出目录</label>
+          <div class="path-row">
+            <input type="text" id="cmpOut" placeholder="变化成果保存位置" />
+            <button class="primary sm" id="browseCmpOut" type="button">选择</button>
+          </div>
+        </div>
+        <div class="cfg-field w1">
+          <label>底图 TIF（可选，用于预览渲染）</label>
+          <div class="path-row">
+            <input type="text" id="cmpTif" placeholder="正射影像 .tif，可留空" />
+            <button class="primary sm" id="browseCmpTif" type="button">选择</button>
+          </div>
+        </div>
+      </div>
+      <div id="cmpHint" class="hint">比对按几何类型自动配对图层：线↔线（标线）、面↔面（面状标线）、点↔点（标志设施）</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+        <div class="ht"><span class="t1">比对进度</span></div>
+        <span class="spacer"></span>
+        <span id="cmpChip" class="chip idle">待机</span>
+      </div>
+      <div id="cmpLog" class="log" style="margin-top:4px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="ticon teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+        <div class="ht"><span class="t1">比对结果</span><span class="t2">变化统计（绿色=新增 红=灭失 橙=改动，最终以人工内业确认为准）</span></div>
+        <span class="spacer"></span>
+        <button class="primary sm" id="cmpOpenOut" type="button">打开输出目录</button>
+      </div>
+      <div id="cmpResult" style="margin-top:6px"><div class="hint">尚未运行。比对完成后此处显示变化统计与预览图。</div></div>
+    </div>
+  </section>
 </main>
 
 <div id="toast"></div>
@@ -594,6 +751,179 @@ function showResult(r) {
   html += `<div class="hint">时序变化要素 ${r.change_count} 条</div>`;
   if (r.change_path) html += `<div class="hint">${r.change_path}</div>`;
   el('resultBody').innerHTML = html;
+}
+/* ---------- 标签页 ---------- */
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    document.querySelectorAll('.tabsec').forEach(s => s.hidden = true);
+    el('tab-' + t.dataset.tab).hidden = false;
+  };
+});
+
+/* ---------- 正射影像提取 ---------- */
+async function pickFile(inputId, title, ext) {
+  try {
+    const r = await call('pick_file', title, ext || []);
+    if (r && r.ok && r.path) { el(inputId).value = r.path; return r.path; }
+    if (r && r.error) toast('无法打开文件选择器：' + r.error, 'err');
+  } catch (e) { toast('无法打开文件选择器：' + e, 'err'); }
+  return null;
+}
+el('browseDomTif').onclick = () => pickFile('domTif', '选择正射影像 TIF', ['.tif', '.tiff']);
+el('browseDomOut').onclick = () => pickDir('domOut', '选择输出目录');
+el('browseDomStock').onclick = () => pickDir('domStock', '选择存量 GDB 目录');
+el('browseCmpNew').onclick = () => pickDir('cmpNew', '选择新成果 GDB 目录');
+el('browseCmpStock').onclick = () => pickDir('cmpStock', '选择存量 GDB 目录');
+el('browseCmpOut').onclick = () => pickDir('cmpOut', '选择输出目录');
+el('browseCmpTif').onclick = () => pickFile('cmpTif', '选择底图 TIF', ['.tif', '.tiff']);
+el('domOpenOut').onclick = async () => {
+  const p = el('domOut').value.trim();
+  if (!p) { toast('请先选择输出目录', 'err'); return; }
+  await call('open_folder', p);
+};
+el('cmpOpenOut').onclick = async () => {
+  const p = el('cmpOut').value.trim();
+  if (!p) { toast('请先选择输出目录', 'err'); return; }
+  await call('open_folder', p);
+};
+
+const DOM_CHIP = { idle: ['idle', '待机'], run: ['run', '提取中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
+const CMP_CHIP = { idle: ['idle', '待机'], run: ['run', '比对中'], done: ['done', '已完成'], fail: ['fail', '失败'] };
+let domRunTs = 0, cmpRunTs = 0;
+
+el('domRunBtn').onclick = async () => {
+  const tif = el('domTif').value.trim(), out = el('domOut').value.trim();
+  if (!tif) { toast('请选择正射影像 TIF 文件', 'err'); return; }
+  if (!out) { toast('请选择输出目录', 'err'); return; }
+  const r = await call('start_dom', tif, out, el('domStock').value.trim() || null,
+    parseFloat(el('domMinLen').value) || 2.0, el('domClip').checked);
+  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
+  el('domRunBtn').disabled = true;
+  domRunTs = Date.now();
+  setChip2('domChip', DOM_CHIP, 'run');
+  pollDom();
+};
+
+el('cmpRunBtn').onclick = async () => {
+  const ng = el('cmpNew').value.trim(), sg = el('cmpStock').value.trim(), out = el('cmpOut').value.trim();
+  if (!ng) { toast('请选择新成果 GDB', 'err'); return; }
+  if (!sg) { toast('请选择存量 GDB', 'err'); return; }
+  if (!out) { toast('请选择输出目录', 'err'); return; }
+  const r = await call('start_compare', ng, sg, out, el('cmpTif').value.trim() || null);
+  if (!r.started) { toast(r.error || '启动失败', 'err'); return; }
+  el('cmpRunBtn').disabled = true;
+  cmpRunTs = Date.now();
+  setChip2('cmpChip', CMP_CHIP, 'run');
+  pollCmp();
+};
+
+function setChip2(id, chips, state) {
+  const [cls, text] = chips[state] || chips.idle;
+  const c = el(id);
+  c.className = 'chip ' + cls;
+  c.textContent = text;
+}
+
+function logAppend(box, logs, lastCountRef) {
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  if (logs.length < lastCountRef.n) { box.textContent = logs.join('\n'); }
+  else if (logs.length > lastCountRef.n) {
+    box.textContent += (box.textContent ? '\n' : '') + logs.slice(lastCountRef.n).join('\n');
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+  lastCountRef.n = logs.length;
+}
+
+function pollDom() {
+  const ref = { n: 0 };
+  const timer = setInterval(async () => {
+    let s;
+    try { s = await call('get_dom_status'); } catch (e) { return; }
+    const pct = s.total ? Math.round(s.progress / s.total * 100) : 0;
+    el('domPct').innerHTML = pct + '<small>%</small>';
+    el('domPctSub').textContent = `${s.progress || 0} / ${s.total || 0}`;
+    el('domBar').style.width = pct + '%';
+    logAppend(el('domLog'), s.logs || [], ref);
+    if (s.state === 'done' || s.state === 'error') {
+      clearInterval(timer);
+      el('domRunBtn').disabled = false;
+      if (s.state === 'error') {
+        setChip2('domChip', DOM_CHIP, 'fail');
+        toast('正射提取失败', 'err');
+        el('domResult').innerHTML = '<div class="hint err">失败：' + (s.error || '') + '</div>';
+      } else {
+        setChip2('domChip', DOM_CHIP, 'done');
+        toast('正射提取完成', 'good');
+        showDomResult(s.result);
+      }
+    }
+  }, 500);
+}
+
+function showDomResult(r) {
+  if (!r) return;
+  let html = `<table><tr><th>标线（条）</th><th>面状标线（个）</th><th>耗时（秒）</th></tr>
+    <tr><td><span class="num">${r.lines}</span></td><td><span class="num">${r.areas}</span></td>
+    <td><span class="num">${r.seconds}</span></td></tr></table>`;
+  if (r.gdb) html += `<div class="hint">GDB：${r.gdb}</div>`;
+  (r.shp || []).forEach(p => { html += `<div class="hint">SHP：${p}</div>`; });
+  el('domResult').innerHTML = html;
+  if (r.preview) el('domResult').appendChild(localImg(r.preview));
+}
+
+function localImg(path) {
+  const img = new Image();
+  const p = path.replace(/\\/g, '/');
+  img.src = /^https?:|^file:/.test(p) ? p
+    : (p.startsWith('/') ? 'file://' + p : 'file:///' + p);
+  img.className = 'prev-img';
+  return img;
+}
+
+function call2dataurl(path) { return path; }
+
+function pollCmp() {
+  const ref = { n: 0 };
+  const timer = setInterval(async () => {
+    let s;
+    try { s = await call('get_cmp_status'); } catch (e) { return; }
+    logAppend(el('cmpLog'), s.logs || [], ref);
+    if (s.state === 'done' || s.state === 'error') {
+      clearInterval(timer);
+      el('cmpRunBtn').disabled = false;
+      if (s.state === 'error') {
+        setChip2('cmpChip', CMP_CHIP, 'fail');
+        toast('比对失败', 'err');
+        el('cmpResult').innerHTML = '<div class="hint err">失败：' + (s.error || '') + '</div>';
+      } else {
+        setChip2('cmpChip', CMP_CHIP, 'done');
+        toast('变化比对完成', 'good');
+        showCmpResult(s.result);
+      }
+    }
+  }, 500);
+}
+
+function showCmpResult(r) {
+  if (!r) return;
+  const t = r.totals || {};
+  const K = [['lines', '标线'], ['areas', '面状标线'], ['points', '点要素']];
+  let html = '<table><tr><th>类别</th><th>匹配</th><th>疑似新增</th><th>疑似灭失</th><th>疑似改动</th></tr>';
+  for (const [k, cn] of K) {
+    const v = (r.by_kind || {})[k];
+    if (!v) continue;
+    if (v.skipped) { html += `<tr><td>${cn}</td><td colspan="4" style="color:var(--ink-3)">新成果无此类要素，跳过</td></tr>`; continue; }
+    html += `<tr><td>${cn}</td><td><span class="num">${v.matched}</span></td><td><span class="num">${v.new}</span></td><td><span class="num">${v.missing}</span></td><td><span class="num">${v.modified}</span></td></tr>`;
+  }
+  html += `<tr><td><b>合计</b></td><td><span class="num">${t.matched || 0}</span></td><td><span class="num">${t.new || 0}</span></td><td><span class="num">${t.missing || 0}</span></td><td><span class="num">${t.modified || 0}</span></td></tr>`;
+  html += '</table>';
+  if (r.change_gdb) html += `<div class="hint">变化 GDB：${r.change_gdb}</div>`;
+  (r.shp || []).slice(0, 3).forEach(p => { html += `<div class="hint">SHP：${p}</div>`; });
+  html += `<div class="hint">报告：${r.change_gdb ? r.change_gdb.replace('变化比对.gdb', '比对报告.json') : ''}</div>`;
+  el('cmpResult').innerHTML = html;
+  if (r.preview) el('cmpResult').appendChild(localImg(r.preview));
 }
 </script>
 </body>

@@ -31,3 +31,7 @@ result_*.gdb/
 
 # 项目记忆（本地）
 .workbuddy/
+
+# 临时构建目录（沙箱限制无法删除时使用新 distpath）
+dist_*/
+build_*/
