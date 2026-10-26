@@ -12,7 +12,24 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 
+def frozen_selftest():
+    """冻结环境自检（发布验证用，正常用户不触发）：
+    AVT_SELFTEST=gdb 时验证 GDB 导出依赖在打包产物内完整可用。"""
+    if os.environ.get("AVT_SELFTEST") != "gdb":
+        return False
+    import tempfile
+    from pipeline.exporter import export_points_gdb
+    feats = [{"x": 500000.0, "y": 3000000.0, "class_id": "2", "class_cn": "自检",
+              "session": "S", "image": "I", "dist": 0.0, "score": 0.9}]
+    p = os.path.join(tempfile.mkdtemp(prefix="avt_selftest_"), "t.gdb")
+    ok = export_points_gdb(p, "detections", feats)
+    print("GDB_SELFTEST:", "PASS" if ok and os.path.exists(p) else "FAIL")
+    return True
+
+
 def main():
+    if frozen_selftest():
+        return
     api = Api()
     webview.create_window(
         title="",   # 不显示原生标题文字

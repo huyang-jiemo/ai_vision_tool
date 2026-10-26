@@ -48,9 +48,11 @@ class LaneDetector:
         roi = np.zeros_like(mask)
         cv2.fillPoly(roi, [quad], 255)
         mask = cv2.bitwise_and(mask, roi)
-        # 排除本车平台遮挡区
+        # 排除本车平台遮挡：中央引擎盖/车顶（竖幅中央宽区）+ 底部车顶架带；
+        # 保留画面左右边缘——贴近本车的左/右车道线恰位于该处
         ego = np.zeros_like(mask)
-        cv2.rectangle(ego, (int(w * 0.28), int(h * 0.70)), (int(w * 0.74), h), 255, -1)
+        cv2.rectangle(ego, (int(w * 0.30), int(h * 0.60)), (int(w * 0.80), h), 255, -1)
+        cv2.rectangle(ego, (int(w * 0.15), int(h * 0.80)), (int(w * 0.90), h), 255, -1)
         mask = cv2.bitwise_and(mask, cv2.bitwise_not(ego))
 
         raw = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=35,
@@ -106,6 +108,11 @@ class LaneDetector:
                     break
                 Q = remaining[best_inl]
                 a, b = np.polyfit(Q[:, 0], Q[:, 1], 1, w=Q[:, 2])
+                # 证据必须延伸到本车带以上的路面区域（有内点 y < 0.72h），
+                # 否则为车顶架/保险杠等本车结构亮线，剔除
+                if Q[:, 0].min() > 0.72 * h:
+                    remaining = remaining[~best_inl]
+                    continue
                 x_top, x_bot = a * roi_top + b, a * (h - 1) + b
                 if not (0.25 * w <= x_top <= 0.75 * w):
                     continue

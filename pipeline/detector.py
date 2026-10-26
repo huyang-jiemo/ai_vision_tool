@@ -69,6 +69,7 @@ class YoloDetector:
         out = self.session.run(None, {self.input_name: blob})[0]  # (1,84,8400)
         pred = out[0].T  # (8400,84)
         boxes, scores, class_ids = [], [], []
+        H, W = img.shape[:2]
         for row in pred:
             cls = row[4:]
             cid = int(np.argmax(cls))
@@ -78,10 +79,11 @@ class YoloDetector:
             if self.target_classes is not None and cid not in self.target_classes:
                 continue
             x, y, bw, bh = row[:4]
-            x1 = (x - bw / 2) * (self.imgsz / scale) / nw * (img.shape[1] / self.imgsz)
-            y1 = (y - bh / 2) * (self.imgsz / scale) / nh * (img.shape[0] / self.imgsz)
-            x2 = (x + bw / 2) * (self.imgsz / scale) / nw * (img.shape[1] / self.imgsz)
-            y2 = (y + bh / 2) * (self.imgsz / scale) / nh * (img.shape[0] / self.imgsz)
+            # 模型坐标为 1280 画布坐标（letterbox 左上对齐），除以缩放系数即回原图
+            x1 = max(0.0, (x - bw / 2) / scale)
+            y1 = max(0.0, (y - bh / 2) / scale)
+            x2 = min(float(W), (x + bw / 2) / scale)
+            y2 = min(float(H), (y + bh / 2) / scale)
             boxes.append([x1, y1, x2, y2])
             scores.append(sc)
             class_ids.append(cid)

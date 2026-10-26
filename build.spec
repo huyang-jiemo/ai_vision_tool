@@ -17,7 +17,13 @@ a = Analysis(
         ("web", "web"),
         (os.path.join(MODELS, "yolo11n.onnx"), "models"),
     ],
-    hiddenimports=[],
+    hiddenimports=[
+        # pyogrio 的二进制扩展模块：_geometry 等为函数内延迟导入，
+        # PyInstaller 静态分析可能遗漏（曾导致打包后 GDB 导出报
+        # "No module named 'pyogrio._geometry'"），此处显式声明
+        "pyogrio", "pyogrio._geometry", "pyogrio._io", "pyogrio._ogr",
+        "pyogrio._err", "pyogrio._vsi",
+    ],
     excludes=[
         "torch", "torchvision", "ultralytics", "matplotlib",
         "PyQt5", "PySide6", "notebook", "IPython",

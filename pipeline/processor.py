@@ -102,6 +102,17 @@ class Pipeline:
                 scale = cfg.resize_max_dim / max(og_w, og_h)
                 work, _ = self._load_image(im_rec.path, scale, use_fisheye)
                 dets = self.detector.detect(work) if self.detector else []
+                # 本车平台遮挡区抑制：画面底部（车顶/引擎盖/支架）的检出均为
+                # 本车结构反光造成的误检，且该区域地物不具备地理参考意义。
+                # 仅过滤中央区域，保留画面左右边缘紧邻车道的真实目标
+                if dets:
+                    H_w = work.shape[0]
+                    W_w = work.shape[1]
+                    def _not_ego(d):
+                        y1 = d.bbox[1]
+                        cx = (d.bbox[0] + d.bbox[2]) / 2
+                        return not (y1 > 0.66 * H_w and 0.10 * W_w < cx < 0.90 * W_w)
+                    dets = [d for d in dets if _not_ego(d)]
                 lanes = self.lane.detect(work)
 
                 pts_feat = []

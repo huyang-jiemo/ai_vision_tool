@@ -214,7 +214,8 @@
   /* ══════════ 日志 ══════════ */
   .log { background: #17191C; color: #C9D4E3; font-family: ui-monospace, Menlo, monospace;
          font-size: 12px; line-height: 1.75; flex: 1; min-height: 160px; overflow: auto;
-         padding: 13px 15px; border-radius: var(--r-md); white-space: pre-wrap; word-break: break-all; }
+         padding: 13px 15px; border-radius: var(--r-md); white-space: pre-wrap; word-break: break-all;
+         user-select: text; -webkit-user-select: text; cursor: text; }
   .log:empty::before { content: "日志将在此处输出"; color: #5B6470; }
 
   /* ══════════ 结果 ══════════ */
@@ -259,7 +260,7 @@
       <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
     </svg>
     <div class="tt"><span class="name">众源感知自动解译工具</span></div>
-    <span class="badge-ver">v0.2.5</span>
+    <span class="badge-ver">v0.2.6</span>
   </div>
   <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型</span></div>
 </header>
@@ -344,7 +345,11 @@
       <div class="card">
         <div class="card-head">
           <span class="ticon dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></span>
-          <div class="ht"><span class="t1">运行日志</span><span class="t2">解译过程实时输出</span></div>
+          <div class="ht"><span class="t1">运行日志</span><span class="t2">解译过程实时输出 · 可选中复制 · 同步保存到输出目录</span></div>
+          <span class="spacer"></span>
+          <button class="ghost" id="openLog" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-8.6a1 1 0 0 1-.83-.45L9.4 4.45A1 1 0 0 0 8.57 4H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z"/><path d="M11 16V9M8 12l3-3 3 3"/></svg>
+            打开日志</button>
         </div>
         <div id="log" class="log"></div>
       </div>
@@ -429,6 +434,7 @@ async function openOutDir() {
 el('browseData').onclick = async () => { if (await pickDir('dataDir', '选择数据源目录')) scanDir(); };
 el('browseOut').onclick = () => pickDir('outDir', '选择输出目录');
 el('openOut2').onclick = openOutDir;
+el('openLog').onclick = openOutDir;
 
 /* ---------- 扫描 ---------- */
 let lastScan = { dir: '', matched: -1 };
@@ -486,7 +492,7 @@ el('runBtn').onclick = async () => {
 };
 
 /* ---------- 轮询 ---------- */
-let lastFiles = [], lastCurrent = '';
+let lastFiles = [], lastCurrent = '', lastLogCount = 0;
 function poll() {
   const timer = setInterval(async () => {
     let s;
@@ -501,9 +507,18 @@ function poll() {
     el('tOk').textContent = okN;
     el('tBad').textContent = badN;
     el('fCount').textContent = s.total ? `${okN + badN} / ${s.total}` : '';
+    // 日志：增量追加，保留用户选区；仅在贴底时自动滚动
     const log = el('log');
-    log.textContent = s.logs.join('\n');
-    log.scrollTop = log.scrollHeight;
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    if (s.logs.length < lastLogCount) {          // 新一轮运行，重置
+      log.textContent = s.logs.join('\n');
+      lastLogCount = s.logs.length;
+    } else if (s.logs.length > lastLogCount) {
+      const delta = s.logs.slice(lastLogCount);
+      log.textContent += (log.textContent ? '\n' : '') + delta.join('\n');
+      lastLogCount = s.logs.length;
+      if (atBottom) log.scrollTop = log.scrollHeight;
+    }
     lastFiles = s.files || []; lastCurrent = s.current;
     renderFiles(lastFiles, lastCurrent);
 

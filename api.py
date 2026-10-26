@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from pipeline.config import PipelineConfig
@@ -24,6 +25,7 @@ class RunState:
         self.result = None
         self.error = None
         self.files = []            # 逐文件状态 [{name,status,det,lane}]
+        self.log_file = ""         # 本次运行日志文件路径（输出目录下）
 
 
 class Api:
@@ -110,6 +112,7 @@ class Api:
                 "result": self.state.result,
                 "error": self.state.error,
                 "files": self.state.files,
+                "log_file": self.state.log_file,
             }
 
     def preview_image(self, path):
@@ -144,11 +147,40 @@ class Api:
             self.state.result = None
             self.state.error = None
         self.cfg.conf_threshold = float(conf)
-        det = self._get_detector()
-        if det is None:
-            msg = "未找到模型 %s，仅运行车道线/地理参考" % self.cfg.detector_model
+
+        # 运行日志同步落盘到输出目录（每次运行独立文件，保留历史）
+        log_path = None
+        log_fh = None
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            log_path = os.path.join(output_dir, f"解译日志_{ts}.log")
+            log_fh = open(log_path, "a", encoding="utf-8")
+            log_fh.write(f"==== 众源感知自动解译 {ts} ====\n")
+            log_fh.write(f"数据源: {data_dir}\n输出目录: {output_dir}\n"
+                         f"置信度阈值: {conf} 最大影像数: {max_images or '不限'} "
+                         f"导出SHP: {export_shp} 导出GDB: {export_gdb}\n\n")
+            log_fh.flush()
+        except Exception:
+            log_fh = None
+            log_path = None
+        with self.state.lock:
+            self.state.log_file = log_path or ""
+
+        def wlog(msg):
+            """写屏幕日志与文件日志（文件失败不影响运行）"""
             with self.state.lock:
                 self.state.logs.append(msg)
+            if log_fh:
+                try:
+                    log_fh.write(time.strftime("[%H:%M:%S] ") + msg + "\n")
+                    log_fh.flush()
+                except Exception:
+                    pass
+
+        det = self._get_detector()
+        if det is None:
+            wlog("未找到模型 %s，仅运行车道线/地理参考" % self.cfg.detector_model)
 
         # 预填逐文件状态表（pending → done/failed）
         try:
@@ -166,11 +198,12 @@ class Api:
         pipe = Pipeline(self.cfg, det)
 
         def cb(i, total, fname, nd, nl, ok=True):
+            wlog(f"[{i}/{total}] {fname} 目标:{nd} 车道线:{nl}"
+                 + ("" if ok else " [失败]"))
             with self.state.lock:
                 self.state.progress = i
                 self.state.total = total
                 self.state.current = fname
-                self.state.logs.append(f"[{i}/{total}] {fname} 目标:{nd} 车道线:{nl}")
                 for f in self.state.files:
                     if f["name"] == fname and f["status"] == "pending":
                         f["status"] = "done" if ok else "failed"
@@ -189,9 +222,21 @@ class Api:
                     "change_path": res.change_path,
                     "output_dir": res.output_dir,
                 }
-                for e in res.errors:
-                    self.state.logs.append("ERR: " + e)
+            for e in res.errors:
+                wlog("ERR: " + e)
+            total_det = sum(v["det"] for v in res.per_session.values())
+            total_lane = sum(v["lane"] for v in res.per_session.values())
+            wlog(f"解译完成：{len(res.per_session)} 个批次，目标 {total_det}，"
+                 f"车道线 {total_lane}，时序变化 {res.change_count}")
+            wlog(f"成果目录: {res.output_dir}")
         except Exception as e:
             with self.state.lock:
                 self.state.state = "error"
                 self.state.error = str(e)
+            wlog("ERR: 解译中断 " + str(e))
+        finally:
+            if log_fh:
+                try:
+                    log_fh.close()
+                except Exception:
+                    pass
