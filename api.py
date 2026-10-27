@@ -160,18 +160,48 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     # ---- 正射影像提取 ----
+    @staticmethod
+    def _resolve_dom_tif(path):
+        """正射影像支持「选目录」：目录内递归找 .tif/.tiff，取像素规模最大的一张。
+        返回 (tif_path, 提示语)；找不到返回 (None, 错误语)。"""
+        if not path:
+            return None, "未选择正射影像目录"
+        if os.path.isfile(path):
+            return path, ""
+        if not os.path.isdir(path):
+            return None, "目录不存在"
+        cands = []
+        for root, _dirs, files in os.walk(path):
+            for fn in files:
+                if fn.lower().endswith((".tif", ".tiff")):
+                    fp = os.path.join(root, fn)
+                    try:
+                        cands.append((os.path.getsize(fp), fp))
+                    except OSError:
+                        continue
+        if not cands:
+            return None, "目录中未找到 .tif/.tiff 影像"
+        cands.sort(reverse=True)
+        tif = cands[0][1]
+        tip = ""
+        if len(cands) > 1:
+            tip = (f"目录内发现 {len(cands)} 个 TIF，取其中最大的 "
+                   f"{os.path.basename(tif)}（其余未处理）")
+        return tif, tip
+
     def start_dom(self, tif_path, output_dir, stock_gdb=None, min_len=2.0,
                   use_stock_clip=True, use_corridor=True):
         if self.dom_state.state == "running":
             return {"started": False, "error": "正射解译正在运行中"}
-        if not tif_path or not os.path.isfile(tif_path):
-            return {"started": False, "error": "正射影像文件不存在"}
+        tif_path, tip = self._resolve_dom_tif(tif_path)
+        if not tif_path:
+            return {"started": False, "error": tip or "正射影像不存在"}
         t = threading.Thread(target=self._run_dom,
                              args=(tif_path, output_dir, stock_gdb, min_len,
-                                   use_stock_clip, use_corridor),
+                                   use_stock_clip, use_corridor, tip),
                              daemon=True)
         t.start()
-        return {"started": True}
+        return {"started": True, "tif": tif_path, "note": tip}
 
     def get_dom_status(self):
         with self.dom_state.lock:
@@ -179,6 +209,7 @@ class Api:
                 "state": self.dom_state.state,
                 "progress": self.dom_state.progress,
                 "total": self.dom_state.total,
+                "current": self.dom_state.current,
                 "logs": self.dom_state.logs[-200:],
                 "result": self.dom_state.result,
                 "error": self.dom_state.error,
@@ -186,21 +217,26 @@ class Api:
             }
 
     def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip,
-                 use_corridor=True):
+                 use_corridor=True, note=""):
         from pipeline.dom_extractor import DomExtractor
         st = self.dom_state
         with st.lock:
             st.state, st.progress, st.total = "running", 0, 0
+            st.current = ""
             st.logs, st.result, st.error = [], None, None
         log_fh = self._open_job_log(st, output_dir, "正射影像提取",
                                     f"影像: {tif_path}\n输出: {output_dir}\n"
                                     f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m "
-                                    f"走廊约束: {use_corridor}")
+                                    f"走廊约束: {use_corridor}"
+                                    + (f"\n{note}" if note else ""))
         wlog = self._wlog(st, log_fh)
+        if note:
+            wlog(note)
 
         def cb(i, total, msg):
             with st.lock:
                 st.progress, st.total = i, total
+                st.current = msg or ""
 
         try:
             extractor = DomExtractor(min_len=float(min_len))
@@ -247,6 +283,7 @@ class Api:
                 "state": self.cmp_state.state,
                 "progress": self.cmp_state.progress,
                 "total": self.cmp_state.total,
+                "current": self.cmp_state.current,
                 "logs": self.cmp_state.logs[-200:],
                 "result": self.cmp_state.result,
                 "error": self.cmp_state.error,
@@ -258,6 +295,7 @@ class Api:
         st = self.cmp_state
         with st.lock:
             st.state, st.progress, st.total = "running", 0, 0
+            st.current = ""
             st.logs, st.result, st.error = [], None, None
         log_fh = self._open_job_log(st, output_dir, "变化比对",
                                     f"新成果: {new_gdb}\n存量: {stock_gdb}\n"
@@ -267,6 +305,7 @@ class Api:
         def cb(i, total, msg):
             with st.lock:
                 st.progress, st.total = i, total
+                st.current = msg or ""
 
         try:
             res = Comparator().run(new_gdb, stock_gdb, output_dir,

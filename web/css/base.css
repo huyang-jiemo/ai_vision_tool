@@ -1,0 +1,71 @@
+/* ============================================================
+   base.css — 元素级基础样式与全局工具类
+   本文件是唯一允许使用裸标签选择器的样式表
+   ============================================================ */
+
+/* ── 盒模型 ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  color: var(--ink-1);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+h1, h2, h3, h4, h5, p, figure { margin: 0; }
+
+button {
+  margin: 0; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; line-height: 1; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled { cursor: not-allowed; }
+
+input, select, textarea { margin: 0; font: inherit; color: inherit; }
+
+svg { display: block; flex-shrink: 0; }
+
+a { color: var(--ac); text-decoration: none; }
+
+table { border-collapse: collapse; width: 100%; }
+
+::selection { background: var(--ac-100); color: var(--ink-1); }
+
+/* hidden 状态统一走 [hidden] 属性；
+   选择器双写用于提升特异性（0,2,0），从而覆盖组件自身的 display 声明，避免使用 !important */
+[hidden], [hidden][hidden] { display: none; }
+
+/* ── 滚动条 ── */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #C9D2DF; border-radius: 6px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #AAB6C8; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── 焦点环（统一走主题色，不用浏览器默认 outline） ── */
+:focus-visible { outline: none; }
+
+/* ============================================================
+   全局工具类 u-*
+   ============================================================ */
+.u-num { font-variant-numeric: tabular-nums; }
+.u-mono { font-family: var(--font-mono); }
+.u-spacer { flex: 1 1 auto; min-width: 0; }
+.u-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.u-break { word-break: break-all; }
+.u-nowrap { white-space: nowrap; }
+.u-dim { color: var(--ink-3); }
+.u-sm { font-size: var(--fs-sm); }
+.u-xs { font-size: var(--fs-xs); }
+.u-row { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }

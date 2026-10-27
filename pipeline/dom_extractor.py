@@ -250,8 +250,16 @@ class DomExtractor:
                     progress_cb(done, total, f"已处理 {done}/{total} 块")
 
         wlog(f"原始提取：线 {len(lines)} 条，面 {len(polys)} 个")
+        # 收尾三个阶段纳入进度刻度，避免最后 3% 长时间无反馈
+        N_TAIL = 3
+        wlog("正在合并共线要素…")
+        if progress_cb:
+            progress_cb(total, total + N_TAIL, "正在合并共线要素…")
         lines = self.merge_collinear(lines)
         wlog(f"共线合并后：线 {len(lines)} 条，面 {len(polys)} 个")
+        wlog("正在写出 GDB…")
+        if progress_cb:
+            progress_cb(total + 1, total + N_TAIL, "正在写出 GDB…")
 
         # 落盘
         gdb_path = out / "正射提取.gdb"
@@ -275,6 +283,8 @@ class DomExtractor:
                 layers_written.append("lane_areas")
         except Exception as e:
             wlog(f"GDB 写出失败：{e}")
+        if progress_cb:
+            progress_cb(total + 2, total + N_TAIL, "正在生成预览图…")
 
         shp_dir = out / "shp"
         shp_files = []
@@ -325,6 +335,8 @@ class DomExtractor:
         (out / "正射提取报告.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         wlog(f"完成：线 {len(lines)} / 面 {len(polys)}，耗时 {report['seconds']}s")
+        if progress_cb:
+            progress_cb(total + N_TAIL, total + N_TAIL, "完成")
         return report
 
     # ---------- 工具 ----------
@@ -352,13 +364,32 @@ class DomExtractor:
                 float(arr[:, 2].max()), float(arr[:, 3].max()))
 
     def merge_collinear(self, lines):
+        """合并端点相邻的共线线段。
+        原实现 5 轮 × O(n²) 全量扫描，线数上万时会卡住数分钟；
+        改为端点网格索引：每次只查当前端点附近一格内的候选，复杂度近似 O(n)。"""
         from shapely.geometry import LineString
         lines = [g for g in lines if g.length >= self.min_len]
         snap = self.merge_snap
+        if not lines or snap <= 0:
+            return lines
+        cell = snap
         for _ in range(5):
             merged_any = False
             used = [False] * len(lines)
             out = []
+            # 端点网格索引：格键 → 线号
+            grid = {}
+            for j, h in enumerate(lines):
+                for pt in (h.coords[0], h.coords[-1]):
+                    grid.setdefault((int(pt[0] // cell), int(pt[1] // cell)), []).append(j)
+
+            def near(pt):
+                kx, ky = int(pt[0] // cell), int(pt[1] // cell)
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        for j in grid.get((kx + dx, ky + dy), ()):
+                            yield j
+
             for i in range(len(lines)):
                 if used[i]:
                     continue
@@ -367,39 +398,48 @@ class DomExtractor:
                 changed = True
                 while changed:
                     changed = False
-                    for j in range(len(lines)):
-                        if used[j]:
-                            continue
-                        h = lines[j]
-                        ge, he = (g.coords[0], g.coords[-1]), (h.coords[0], h.coords[-1])
-                        best = None
-                        for a, pe in ((0, ge[0]), (1, ge[1])):
-                            for b, qe in ((0, he[0]), (1, he[1])):
-                                dist = ((pe[0] - qe[0]) ** 2 + (pe[1] - qe[1]) ** 2) ** 0.5
-                                if dist < snap and (best is None or dist < best[0]):
-                                    best = (dist, a, b)
-                        if best is None:
-                            continue
-                        gpts, hpts = list(g.coords), list(h.coords)
-                        a, b = best[1], best[2]
-                        if a == 1 and b == 0:
-                            pts = gpts + hpts
-                        elif a == 0 and b == 1:
-                            pts = hpts + gpts
-                        elif a == 1 and b == 1:
-                            pts = gpts + hpts[::-1]
-                        else:
-                            pts = hpts + gpts
-                        # 方向一致性（避免把拐角连成一条）
-                        v1 = np.array(pts[1]) - np.array(pts[0])
-                        v2 = np.array(pts[-1]) - np.array(pts[-2])
-                        if np.linalg.norm(v1) > 0 and np.linalg.norm(v2) > 0:
-                            cosang = abs(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
-                            if cosang < 0.95:
+                    ge = (g.coords[0], g.coords[-1])
+                    seen = set()
+                    stop = False
+                    for pt in ge:
+                        for j in near(pt):
+                            if j == i or used[j] or j in seen:
                                 continue
-                        g = LineString(pts)
-                        used[j] = True
-                        changed = merged_any = True
+                            seen.add(j)
+                            h = lines[j]
+                            he = (h.coords[0], h.coords[-1])
+                            loc = None
+                            for a, pe in ((0, ge[0]), (1, ge[1])):
+                                for b, qe in ((0, he[0]), (1, he[1])):
+                                    dist = ((pe[0] - qe[0]) ** 2 + (pe[1] - qe[1]) ** 2) ** 0.5
+                                    if dist < snap and (loc is None or dist < loc[0]):
+                                        loc = (dist, a, b)
+                            if loc is None:
+                                continue
+                            gpts, hpts = list(g.coords), list(h.coords)
+                            a, b = loc[1], loc[2]
+                            if a == 1 and b == 0:
+                                pts = gpts + hpts
+                            elif a == 0 and b == 1:
+                                pts = hpts + gpts
+                            elif a == 1 and b == 1:
+                                pts = gpts + hpts[::-1]
+                            else:
+                                pts = hpts + gpts
+                            # 方向一致性（避免把拐角连成一条）
+                            v1 = np.array(pts[1]) - np.array(pts[0])
+                            v2 = np.array(pts[-1]) - np.array(pts[-2])
+                            if np.linalg.norm(v1) > 0 and np.linalg.norm(v2) > 0:
+                                cosang = abs(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+                                if cosang < 0.95:
+                                    continue
+                            g = LineString(pts)
+                            used[j] = True
+                            changed = merged_any = True
+                            stop = True   # g 已变化，重新按新端点收集候选
+                            break
+                        if stop:
+                            break
                 out.append(g)
             lines = out
             if not merged_any:

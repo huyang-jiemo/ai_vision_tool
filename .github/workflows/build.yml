@@ -24,11 +24,11 @@ jobs:
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       - name: Package .app
-        run: ditto -c -k --sequesterRsrc dist/AI-Vision-Tool.app AI-Vision-Tool-macOS-arm64.zip
+        run: ditto -c -k --sequesterRsrc dist/AIVisionTool.app AIVisionTool-macOS-arm64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: macOS-arm64
-          path: AI-Vision-Tool-macOS-arm64.zip
+          path: AIVisionTool-macOS-arm64.zip
           retention-days: 7   # 自动过期，避免长期占用账号 500MB 制品配额
 
   build-windows:
@@ -48,11 +48,11 @@ jobs:
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       - name: Package .exe
-        run: Compress-Archive -Path dist/AI-Vision-Tool -DestinationPath AI-Vision-Tool-Windows-x64.zip
+        run: Compress-Archive -Path dist/AIVisionTool -DestinationPath AIVisionTool-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Windows-x64
-          path: AI-Vision-Tool-Windows-x64.zip
+          path: AIVisionTool-Windows-x64.zip
           retention-days: 7   # 自动过期，避免长期占用账号 500MB 制品配额
 
   release:
@@ -68,5 +68,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            AI-Vision-Tool-macOS-arm64.zip
-            AI-Vision-Tool-Windows-x64.zip
+            AIVisionTool-macOS-arm64.zip
+            AIVisionTool-Windows-x64.zip

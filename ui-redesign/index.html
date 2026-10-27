@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>众源感知提取工具</title>
+<!-- Design System: Tech Utility / 精密仪器感 (tokens.css) -->
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/layout.css" />
+<link rel="stylesheet" href="css/components.css" />
+<link rel="stylesheet" href="css/pages.css" />
+</head>
+<body>
+
+<div class="app">
+
+<!-- ══════════ 左侧导航轨 ══════════ -->
+<aside class="rail">
+  <div class="brand">
+    <svg class="brand__logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#3E63D8"/><stop offset="1" stop-color="#2F4BA8"/>
+      </linearGradient></defs>
+      <rect width="1024" height="1024" rx="230" fill="url(#lg)"/>
+      <path d="M512 862 C 498 846 368 690 336 632 C 311 587 298 541 298 494 C 298 374 394 278 512 278 C 630 278 726 374 726 494 C 726 541 713 587 688 632 C 656 690 526 846 512 862 Z" fill="#FFFFFF"/>
+      <path d="M436 612 L464 384 L560 384 L588 612 Z" fill="#2F4BA8"/>
+      <g fill="#FFFFFF"><rect x="501" y="552" width="22" height="34" rx="6"/><rect x="501" y="484" width="22" height="34" rx="6"/><rect x="501" y="416" width="22" height="34" rx="6"/></g>
+    </svg>
+    <div class="brand__tt">
+      <span class="brand__name">众源感知提取工具</span>
+      <span class="brand__ver">v0.5.1</span>
+    </div>
+    <div class="rail__sep" aria-hidden="true"></div>
+  </div>
+
+  <nav class="nav">
+    <button class="nav__i is-on" data-tab="car" data-ac="brand" type="button">
+      <span class="nav__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><circle cx="7" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg></span>
+      <span class="nav__tt"><span class="nav__t1">车载影像提取</span></span>
+    </button>
+    <button class="nav__i" data-tab="dom" data-ac="brand" type="button">
+      <span class="nav__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/></svg></span>
+      <span class="nav__tt"><span class="nav__t1">正射影像提取</span></span>
+    </button>
+    <button class="nav__i" data-tab="cmp" data-ac="brand" type="button">
+      <span class="nav__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
+      <span class="nav__tt"><span class="nav__t1">变化比对</span></span>
+    </button>
+  </nav>
+
+  <div class="rail__spacer"></div>
+  <div class="model"><span class="dot" id="modelDot"></span><span id="modelText">正在加载模型…</span></div>
+</aside>
+
+<!-- ══════════ 内容区 ══════════ -->
+<div class="wrap">
+<main>
+
+  <!-- ══════ 车载影像提取 ══════ -->
+  <section id="tab-car" class="page" data-ac="brand">
+
+    <header class="page-head">
+      <div class="ph-tt">
+        <span class="ph-t1">车载影像提取</span>
+      </div>
+      <div class="steps" data-steps="car">
+        <span class="step" data-step="1"><span class="step__n">1</span>选择数据源</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="2"><span class="step__n">2</span>选择输出目录</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="3"><span class="step__n">3</span>开始提取</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="card-head">
+        <div class="card-head__tt"><span class="card-head__t1">提取配置</span></div>
+      </div>
+      <div class="cfg-grid">
+        <div class="field field--path">
+          <label class="field__lb" for="dataDir">数据源目录</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="dataDir" placeholder="包含按批次配对的 照片/ 与 轨迹/" />
+            <button class="btn btn--sm btn--ghost" id="browseData" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--path">
+          <label class="field__lb" for="outDir">输出目录</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="outDir" placeholder="SHP 成果保存位置" />
+            <button class="btn btn--sm btn--ghost" id="browseOut" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--num">
+          <label class="field__lb" for="conf">置信度阈值</label>
+          <input class="inp" type="number" id="conf" value="0.15" step="0.05" min="0.05" max="0.9" />
+        </div>
+        <div class="field field--num">
+          <label class="field__lb" for="maxImg">最大影像数</label>
+          <input class="inp" type="number" id="maxImg" value="0" min="0" placeholder="0 = 不限" />
+        </div>
+      </div>
+      <p class="hint" id="scanInfo">数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录 · 成果输出 SHP（含标注预览图）</p>
+    </section>
+
+    <div class="grid2">
+      <div class="col">
+
+        <section class="card card--run" data-order="run">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">提取进度</span></div>
+            <div class="card-head__act">
+              <button class="btn btn--cta" id="runBtn" type="button" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
+            </div>
+          </div>
+
+          <div class="prog">
+            <div class="pct-row">
+              <span class="pct u-num" id="pct">0<span class="pct__u">%</span></span>
+              <span class="pct-sub u-num" id="pctSub">0 / 0</span>
+            </div>
+            <div class="bar"><div class="bar__fill" id="bar"></div></div>
+            <div class="bar-meta">
+              <span class="bar-meta__cur" id="curFile"></span>
+              <span class="bar-meta__eta u-num" id="etaText" hidden></span>
+            </div>
+            <div class="tiles">
+              <div class="tile tile--total">
+                <span class="tile__t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span>
+                <div class="tile__body"><div class="tile__k">总数</div><div class="tile__v u-num" id="tTotal">0</div></div>
+              </div>
+              <div class="tile tile--ok">
+                <span class="tile__t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+                <div class="tile__body"><div class="tile__k">成功</div><div class="tile__v u-num" id="tOk">0</div></div>
+              </div>
+              <div class="tile tile--bad" id="tBadTile">
+                <span class="tile__t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></span>
+                <div class="tile__body"><div class="tile__k">失败</div><div class="tile__v u-num" id="tBad">0</div></div>
+              </div>
+              <div class="tile tile--time">
+                <span class="tile__t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+                <div class="tile__body"><div class="tile__k">已用时</div><div class="tile__v u-num" id="tTime">00:00</div></div>
+              </div>
+            </div>
+            <div class="err-box" id="errBox" hidden>
+              <div class="err-box__t"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><span id="errTitle">提取中断</span></div>
+              <div class="err-box__b is-clamp" id="errBody"></div>
+              <button class="err-box__more" id="errMore" type="button" hidden>展开完整信息</button>
+            </div>
+          </div>
+
+          <!-- 文件队列：并入进度卡下半部，行区域单独滚动 -->
+          <div class="qsec">
+            <div class="qsec__head">
+              <span class="qsec__t">文件队列</span>
+              <span class="files-head__cnt u-num" id="fCount"></span>
+              <div class="qsec__act">
+                <button class="fchip is-on" data-f="all" type="button">全部</button>
+                <button class="fchip" data-f="done" type="button">成功</button>
+                <button class="fchip" data-f="failed" type="button">失败</button>
+              </div>
+            </div>
+            <div class="file-list" id="fileList"></div>
+          </div>
+        </section>
+
+      </div>
+      <div class="col">
+
+        <section class="card card--fill" data-order="log">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">运行日志</span></div>
+            <div class="card-head__act">
+              <button class="btn btn--sm btn--ghost" id="openOut1" type="button">打开输出目录</button>
+            </div>
+          </div>
+          <div class="log-wrap">
+            <div class="log" id="log"></div>
+            <button class="log-jump" data-log-act="jump" type="button" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>已暂停跟随</button>
+          </div>
+        </section>
+
+        <section class="card card--result" data-order="result">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">提取结果</span></div>
+            <span class="card-path" id="carResPath" hidden></span>
+            <div class="card-head__act">
+              <button class="btn btn--sm btn--ghost" id="openOut2" type="button">打开输出目录</button>
+            </div>
+          </div>
+          <div class="result-body" id="resultBody">
+            <div class="empty">
+              <span class="empty__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span>
+              <span class="empty__t">尚未运行</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════ 正射影像提取 ══════ -->
+  <section id="tab-dom" class="page" data-ac="brand" hidden>
+
+    <header class="page-head">
+      <div class="ph-tt">
+        <span class="ph-t1">正射影像提取</span>
+      </div>
+      <div class="steps" data-steps="dom">
+        <span class="step" data-step="1"><span class="step__n">1</span>选择 DOM 目录</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="2"><span class="step__n">2</span>选择输出目录</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="3"><span class="step__n">3</span>开始提取</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="card-head">
+        <div class="card-head__tt"><span class="card-head__t1">提取配置</span></div>
+      </div>
+      <div class="cfg-grid">
+        <div class="field field--path">
+          <label class="field__lb" for="domTif">正射影像目录</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="domTif" placeholder="包含 DOM 影像（.tif）的目录" />
+            <button class="btn btn--sm btn--ghost" id="browseDomTif" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--path">
+          <label class="field__lb" for="domOut">输出目录</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="domOut" placeholder="正射提取.gdb 保存位置" />
+            <button class="btn btn--sm btn--ghost" id="browseDomOut" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--path">
+          <label class="field__lb" for="domStock">存量 GDB<span class="field__opt">（可选，推荐提供）</span></label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="domStock" placeholder="存量地图 .gdb 目录" />
+            <button class="btn btn--sm btn--ghost" id="browseDomStock" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--num">
+          <label class="field__lb" for="domMinLen">最短标线（米）</label>
+          <input class="inp" type="number" id="domMinLen" value="2" min="0.5" step="0.5" />
+        </div>
+      </div>
+      <div class="switches">
+        <label class="switch"><input type="checkbox" id="domClip" checked /><span class="switch__track"></span>按存量范围裁剪</label>
+        <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="switch__track"></span>仅提取存量道路走廊（±8m，建筑不提取）</label>
+      </div>
+    </section>
+
+    <div class="grid2">
+      <div class="col">
+
+        <section class="card" data-order="run">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">提取进度</span></div>
+            <div class="card-head__act">
+              <button class="btn btn--cta" id="domRunBtn" type="button" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始提取</button>
+            </div>
+          </div>
+          <div class="pct-row">
+            <span class="pct u-num" id="domPct">0<span class="pct__u">%</span></span>
+            <span class="pct-sub u-num" id="domPctSub">0 / 0</span>
+          </div>
+          <div class="bar"><div class="bar__fill" id="domBar"></div></div>
+          <div class="bar-meta">
+            <span class="bar-meta__cur" id="domCurFile"></span>
+            <span class="bar-meta__eta u-num" id="domEtaText" hidden></span>
+          </div>
+        </section>
+
+        <section class="card card--fill" data-order="log">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">运行日志</span></div>
+          </div>
+          <div class="log-wrap">
+            <div class="log" id="domLog"></div>
+            <button class="log-jump" data-log-act="jump" type="button" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>已暂停跟随</button>
+          </div>
+        </section>
+
+      </div>
+      <div class="col">
+
+        <section class="card card--fill" data-order="result">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">提取结果</span></div>
+            <span class="card-path" id="domResPath" hidden></span>
+            <div class="card-head__act">
+              <button class="btn btn--sm btn--ghost" id="domOpenOut" type="button">打开输出目录</button>
+            </div>
+          </div>
+          <div class="result-body" id="domResult">
+            <div class="empty">
+              <span class="empty__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/></svg></span>
+              <span class="empty__t">尚未运行</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════ 变化比对 ══════ -->
+  <section id="tab-cmp" class="page" data-ac="brand" hidden>
+
+    <header class="page-head">
+      <div class="ph-tt">
+        <span class="ph-t1">变化比对</span>
+      </div>
+      <div class="steps" data-steps="cmp">
+        <span class="step" data-step="1"><span class="step__n">1</span>选择新成果 GDB</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="2"><span class="step__n">2</span>选择存量 GDB</span>
+        <span class="step-arrow">→</span>
+        <span class="step" data-step="3"><span class="step__n">3</span>开始比对</span>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="card-head">
+        <div class="card-head__tt"><span class="card-head__t1">比对设置</span></div>
+      </div>
+      <div class="cfg-grid">
+        <div class="field field--path">
+          <label class="field__lb" for="cmpNew">新成果 GDB</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="cmpNew" placeholder="自动提取生成的 .gdb 目录" />
+            <button class="btn btn--sm btn--ghost" id="browseCmpNew" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--path">
+          <label class="field__lb" for="cmpStock">存量 GDB</label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="cmpStock" placeholder="存量地图 .gdb 目录" />
+            <button class="btn btn--sm btn--ghost" id="browseCmpStock" type="button">选择</button>
+          </div>
+        </div>
+        <div class="field field--path">
+          <label class="field__lb" for="cmpTif">底图 TIF<span class="field__opt">（可选，用于叠加渲染）</span></label>
+          <div class="path-row">
+            <input class="inp inp--mono" type="text" id="cmpTif" placeholder="正射影像 .tif，可留空" />
+            <button class="btn btn--sm btn--ghost" id="browseCmpTif" type="button">选择</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid2">
+      <div class="col">
+
+        <section class="card card--fill" data-order="run">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">比对进度</span></div>
+            <div class="card-head__act">
+              <button class="btn btn--cta" id="cmpRunBtn" type="button" disabled>
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5z"/></svg>开始比对</button>
+            </div>
+          </div>
+          <div class="log-wrap">
+            <div class="log" id="cmpLog"></div>
+            <button class="log-jump" data-log-act="jump" type="button" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>已暂停跟随</button>
+          </div>
+        </section>
+
+        <section class="card card--result" data-order="result">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">比对结果</span></div>
+            <span class="card-path" id="cmpResPath" hidden></span>
+            <div class="card-head__act">
+              <button class="btn btn--sm btn--ghost" id="cmpOpenOut" type="button" hidden>打开留档目录</button>
+            </div>
+          </div>
+          <div class="result-body" id="cmpResult">
+            <div class="empty">
+              <span class="empty__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/></svg></span>
+              <span class="empty__t">尚未运行</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+      <div class="col">
+
+        <section class="card card--fill" data-order="preview">
+          <div class="card-head">
+            <div class="card-head__tt"><span class="card-head__t1">比对预览</span></div>
+          </div>
+          <div class="result-body" id="cmpPrev">
+            <div class="empty">
+              <span class="empty__ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg></span>
+              <span class="empty__t">尚未运行</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+</main>
+</div>
+
+</div><!-- /.app -->
+
+<!-- ══════════ 演示态切换（仅浏览器直接打开、无 pywebview 时出现） ══════════ -->
+<div class="demo-bar" id="demoBar" hidden>
+  <span class="demo-bar__lb">演示</span>
+  <button class="demo-bar__b is-on" data-demo="running" type="button">运行中</button>
+  <button class="demo-bar__b" data-demo="done" type="button">已完成</button>
+</div>
+
+<!-- ══════════ Toast ══════════ -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span class="toast__ico" id="toastIco"></span>
+  <span class="toast__msg" id="toastMsg"></span>
+  <button class="toast__x" id="toastX" type="button" aria-label="关闭" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+  </button>
+</div>
+
+<script src="js/mock.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/pages/car.js"></script>
+<script src="js/pages/dom.js"></script>
+<script src="js/pages/cmp.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

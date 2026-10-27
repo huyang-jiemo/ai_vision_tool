@@ -2,7 +2,7 @@
 import os
 from PyInstaller.utils.hooks import collect_submodules
 
-APP_NAME = "AI-Vision-Tool"
+APP_NAME = "AIVisionTool"
 ROOT = SPECPATH  # PyInstaller 执行 spec 时不提供 __file__，用 SPECPATH（spec 所在目录）
 MODELS = os.path.join(ROOT, "models")
 ICON_DIR = os.path.join(ROOT, "assets")
@@ -100,22 +100,53 @@ try:
 except Exception:
     pass
 
-# 关键修复：多个包（rasterio/pyproj/pyogrio）捆绑同名 libproj.25.9.8.1.dylib，
-# COLLECT 去重时 pyproj 的副本会覆盖 rasterio 的副本，而 rasterio 的 GDAL 3.12.2
-# 依赖其自带 libproj 独有的符号（_internal_geod_init），导致打包后
-# "Symbol not found: _internal_geod_init"。此处强制以 rasterio/.dylibs 的副本为准。
+# 关键修复：多个包（rasterio / pyproj）捆绑同名 libproj.25.9.8.1.dylib，但两者是
+# 不同构建：rasterio 版导出 GDAL 需要的 _internal_* 符号，pyproj 版导出公共 API
+# _proj_context_create。二者不可互换（早前统一替换成 rasterio 版，导致打包后
+# 正射提取报 "Symbol not found: _proj_context_create" 直接中断）。
+# 处理方式：① 顶层副本用 rasterio 版（rasterio 的 GDAL 依赖 _internal_geod_init）；
+# ② pyproj 目录内保留 pyproj 自己的库；③ 把 pyproj 各扩展的 @rpath/libproj 改成
+# @loader_path/.dylibs/libproj，使其锁定到 pyproj 目录内的副本。②③ 在 COLLECT 之后
+# 直接操作落盘文件（PyInstaller 会按 basename 去重，只能在产物上做）。
 try:
-    import glob as _glob
-    import rasterio as _rio2
-    _rio_dylibs = os.path.join(os.path.dirname(_rio2.__file__), ".dylibs")
-    _rio_proj = sorted(_glob.glob(os.path.join(_rio_dylibs, "libproj*.dylib")))
-    if _rio_proj:
-        _fixed = []
-        for _dest, _src, _kind in a.binaries:
-            if os.path.basename(_dest).startswith("libproj"):
-                _src = _rio_proj[0]
-            _fixed.append((_dest, _src, _kind))
-        a.binaries = _fixed
+    import glob as _glob, shutil as _shutil, subprocess as _sp, sys as _sys
+
+
+    def _fix_libproj(dist_dir):
+        if _sys.platform != "darwin" or not dist_dir or not os.path.isdir(dist_dir):
+            return
+        import pyproj as _pj, rasterio as _rio3
+        pj_libs = sorted(_glob.glob(os.path.join(os.path.dirname(_pj.__file__),
+                                                 ".dylibs", "libproj*.dylib")))
+        rio_libs = sorted(_glob.glob(os.path.join(os.path.dirname(_rio3.__file__),
+                                                  ".dylibs", "libproj*.dylib")))
+        if not pj_libs or not rio_libs:
+            return
+        base = os.path.join(dist_dir, "_internal")
+        if not os.path.isdir(base):
+            base = dist_dir
+        name = os.path.basename(rio_libs[0])
+        # ① 顶层：真实文件（rasterio 版），替换掉指向 pyproj 目录的符号链接
+        top = os.path.join(base, name)
+        try:
+            if os.path.islink(top) or os.path.isfile(top):
+                os.remove(top)
+            _shutil.copy2(rio_libs[0], top)
+        except OSError:
+            pass
+        # ② pyproj 目录内的副本恢复为 pyproj 自己的构建
+        for sub in (".dylibs", "__dot__dylibs"):
+            d = os.path.join(base, "pyproj", sub)
+            if os.path.isdir(d):
+                try:
+                    _shutil.copy2(pj_libs[0], os.path.join(d, name))
+                except OSError:
+                    pass
+        # ③ pyproj 扩展锁定到自己的副本
+        for so in _glob.glob(os.path.join(base, "pyproj", "*.so")):
+            _sp.run(["install_name_tool", "-change",
+                     "@rpath/" + name, "@loader_path/.dylibs/" + name, so],
+                    check=False, capture_output=True)
 except Exception:
     pass
 
@@ -132,6 +163,13 @@ exe = EXE(
 )
 coll = COLLECT(exe, a.binaries, a.datas, name=APP_NAME)
 
+# COLLECT 落盘后先修正一次（onedir），BUNDLE 之后还要对 .app 再修一次，
+# 因为 BUNDLE 组包时会重建指向 pyproj 目录的 libproj 符号链接
+try:
+    _fix_libproj(os.path.join(ROOT, "dist", APP_NAME))
+except Exception:
+    pass
+
 app = BUNDLE(
     coll, name=APP_NAME + ".app",
     bundle_identifier="com.zhongxiang.aivisiontool",
@@ -142,3 +180,14 @@ app = BUNDLE(
         "CFBundleDisplayName": "AI Vision Tool",
     },
 )
+
+# BUNDLE 之后：对 .app 内的 Frameworks 再做一次 libproj 修正，并重新 ad-hoc 签名
+try:
+    _app_dir = os.path.join(ROOT, "dist", APP_NAME + ".app")
+    _fix_libproj(os.path.join(_app_dir, "Contents", "Frameworks"))
+    import subprocess as _sp2
+    _sp2.run(["codesign", "--force", "--deep", "--sign", "-", _app_dir],
+             check=False, capture_output=True)
+except Exception:
+    pass
+

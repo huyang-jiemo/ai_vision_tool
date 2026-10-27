@@ -1,0 +1,142 @@
+/* ============================================================
+   pages.css — 页面级 / 业务专属样式
+   文件队列 · 筛选 · 分类标签 · 单栏堆叠顺序
+   ============================================================ */
+
+/* ============================================================
+   文件队列（通栏卡：筛选 chip + 行列表）
+   ============================================================ */
+.fchip {
+  height: 24px; padding: 0 11px; border-radius: var(--r-tag);
+  font-size: var(--fs-sm); font-weight: var(--fw-sb);
+  background: var(--bg-sunken); border: 1px solid transparent; color: var(--ink-3);
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+}
+.fchip:hover { border-color: var(--line-2); color: var(--ink-2); }
+.fchip.is-on { background: var(--ink-1); color: #fff; border-color: var(--ink-1); }
+.fchip:focus-visible { box-shadow: var(--ring); }
+
+.files-head__cnt {
+  margin-left: auto; font-size: var(--fs-sm); color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-list {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  height: var(--list-h); overflow: auto; background: var(--bg-card);
+  display: flex; flex-direction: column;
+}
+
+.frow {
+  display: flex; align-items: center; gap: 9px;
+  height: var(--row-h-f); padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--line-soft); min-width: 0;
+  transition: background var(--dur-1) var(--ease);
+}
+.frow:last-child { border-bottom: 0; }
+.frow:hover { background: var(--bg-sunken); }
+.frow.is-current { background: var(--ac-050); box-shadow: inset 2px 0 0 var(--ac); }
+.frow--ph {
+  flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); font-size: var(--fs-sm);
+}
+
+.fic { width: 17px; height: 17px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.fic svg { width: var(--ic-1); height: var(--ic-1); }
+.fic--pending { color: var(--ink-4); }
+.fic--done    { color: var(--success); }
+.fic--failed  { color: var(--danger); }
+.fic--running { color: var(--ac); }
+
+.spinner {
+  width: 13px; height: 13px; flex-shrink: 0;
+  border: 2px solid var(--ac-100); border-top-color: var(--ac);
+  border-radius: 50%; animation: spin var(--dur-spin) linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 文件名：等宽 + 双色（目录段灰 / 文件名深）+ 省略号
+   不参与抢空间（grow 0）：宽档下只占自身文本宽，剩余空间交给 .ftag 的 auto margin，
+   避免「文件名 → chip/tag」之间出现数百 px 的中部空档 */
+.fname {
+  flex: 0 1 auto; min-width: 0; display: flex; align-items: baseline;
+  font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1;
+}
+/* 收缩优先级：目录段先让位，文件名段尽量完整保留 */
+.fname__dir {
+  flex: 0 4 auto; min-width: 0; color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fname__file {
+  flex: 0 1 auto; min-width: 0; color: var(--ink-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* 批次标签：中性灰阶（与主色解耦，避免行内多彩） */
+.fsess {
+  flex: 0 2 auto; max-width: 120px; min-width: 0;
+  font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--r-tag);
+  background: var(--bg-sunken); color: var(--ink-2); font-weight: var(--fw-m);
+  box-shadow: inset 0 0 0 1px var(--line);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* 状态 tag：margin-left:auto 等价一个 flex:1 spacer —— 吸收全部剩余空间把 tag 顶到行尾，
+   左侧「文件名 / 批次 / 分类 chip」因此紧挨成一组；无剩余空间时 auto margin 自动归 0，不产生溢出 */
+.ftag {
+  flex-shrink: 0; margin-left: auto;
+  font-size: var(--fs-sm); padding: 1px 9px;
+  border-radius: var(--r-pill); white-space: nowrap; font-weight: var(--fw-m);
+}
+.ftag--pending { background: var(--idle-bg); color: var(--idle-fg); }
+.ftag--done    { background: var(--success-bg); color: var(--success-fg); }
+.ftag--failed  { background: var(--danger-bg); color: var(--danger-fg); }
+.ftag--running { background: var(--running-bg); color: var(--running-fg); }
+
+/* 分类标签区：完整展示不裁切；空间不足时由文件名段让位（ellipsis） */
+.catchips { display: flex; gap: var(--sp-1); flex: 0 0 auto; min-width: 0; }
+/* 分类标签：统一中性灰阶（原四色 chip 是行内唯一的多彩来源，已去除）
+   用 inset 描边替代 border，盒子高度不变、不扰动 32px 文件行 */
+.catchip {
+  flex-shrink: 0;
+  font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--r-tag);
+  font-weight: var(--fw-m); white-space: nowrap;
+  background: var(--bg-sunken); color: var(--ink-2);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ============================================================
+   结果区细部
+   ============================================================ */
+.result-body { min-width: 0; }
+.result-tbl { margin-top: var(--sp-3); }
+
+/* 预览图占位说明 */
+.prev-cap {
+  margin-top: var(--sp-1h); font-size: var(--fs-sm); color: var(--ink-3);
+  display: flex; align-items: center; gap: var(--sp-1h);
+}
+
+/* ============================================================
+   结果表格：整页不滚动后，表格在卡片内部独立滚动
+   ============================================================ */
+.card--fill .result-body {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+.card--fill .result-body .empty { flex: 1 1 auto; justify-content: center; }
+.card--fill .tbl-wrap { flex: 0 1 auto; max-height: 240px; min-height: 0; overflow: auto; margin-top: 10px; }
+/* 结果预览：可缩放容器吸收结果卡剩余高度，图片默认宽度铺满 */
+.card--fill .result-body .prev-wrap {
+  flex: 1 1 auto; min-height: 160px; box-sizing: border-box;
+}
+
+/* ============================================================
+   变化比对：统计卡+类别表在左列（日志下方，自适应高度），
+   右列整块留给预览图
+   ============================================================ */
+#tab-cmp .card--result { flex: 0 0 auto; }
+#tab-cmp .card--result .tbl-wrap { flex: 0 1 auto; max-height: 260px; }
+#tab-cmp .card--result .result-body .empty { min-height: 132px; }
+#tab-cmp .card--result .result-body .prev-wrap { min-height: 160px; }

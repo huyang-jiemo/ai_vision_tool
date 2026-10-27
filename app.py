@@ -14,7 +14,8 @@ def resource_path(rel):
 
 def frozen_selftest():
     """冻结环境自检（发布验证用，正常用户不触发）：
-    AVT_SELFTEST=gdb 验证 GDB 导出依赖；=rasterio 验证正射影像读取依赖。"""
+    AVT_SELFTEST=gdb 验证 GDB 导出依赖；=rasterio 验证正射影像读取依赖；
+    =dom 验证标线提取；=deps 验证 pyproj/geopandas/pyogrio 依赖链。"""
     mode = os.environ.get("AVT_SELFTEST", "")
     if mode == "gdb":
         import tempfile
@@ -38,6 +39,24 @@ def frozen_selftest():
             print("RASTERIO_SELFTEST: PASS")
         except Exception as e:
             print("RASTERIO_SELFTEST: FAIL", e)
+        return True
+    if mode == "deps":
+        # 验证 GIS 依赖链（pyproj → geopandas/pyogrio）在冻结环境可用：
+        # 曾因 libproj 多副本冲突导致 pyproj 加载失败、正射提取直接中断
+        try:
+            import pyproj
+            from pyproj import CRS
+            import geopandas
+            import pyogrio
+            crs = CRS.from_epsg(3857)
+            gdf = geopandas.GeoDataFrame({"a": [1]}, geometry=geopandas.points_from_xy([0], [0]),
+                                         crs=crs)
+            ok = gdf.crs is not None and gdf.crs.to_epsg() == 3857
+            print("DEPS_SELFTEST:", "PASS" if ok else "FAIL",
+                  f"(pyproj={pyproj.__version__}, gpd={geopandas.__version__}, "
+                  f"pyogrio={pyogrio.__version__}, crs={gdf.crs})")
+        except Exception as e:
+            print("DEPS_SELFTEST: FAIL", type(e).__name__, e)
         return True
     if mode == "dom":
         # 验证正射影像（BigTIFF）读取与标线提取在打包环境下可用
