@@ -40,4 +40,4 @@ dist_*/
 build_*/
 
 # 预览构建产物（由 build_preview.py 生成）
-ui-redesign/preview.html
+web/preview.html
