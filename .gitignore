@@ -2,11 +2,14 @@
 
 # 测试数据不入库；交付说明文档需要入库
 docs/*
-!docs/众源感知AI解译工具说明.md
+!docs/众源感知解译工具说明.md
+!docs/众源感知解译工具技术设计.md
+!docs/众源感知解译工具测试文档.md
 .idea/
 
-# 构建产物不入库；yolo11n.pt 权重入库（CI 导出 ONNX 用）
+# 构建产物不入库；yolo11n.pt 与 yolo11n.onnx 权重入库
 models/*.onnx
+!models/yolo11n.onnx
 *.pt
 !yolo11n.pt
 
