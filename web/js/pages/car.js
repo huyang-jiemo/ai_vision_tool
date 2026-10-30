@@ -187,10 +187,10 @@
     clearInterval(pollTimer);
     pollTimer = setInterval(function () {
       A.call('get_status').then(function (s) {
+        var stop = (s.state === 'done' || s.state === 'error');
+        if (stop) { clearInterval(pollTimer); clearInterval(elapsedTimer); elapsedTimer = null; }
         apply(s);
-        if (s.state === 'done' || s.state === 'error') {
-          clearInterval(pollTimer); clearInterval(elapsedTimer);
-          elapsedTimer = null;
+        if (stop) {
           if (syncReady) syncReady();
           if (s.state === 'error') {
             U.toast('提取失败', 'err');

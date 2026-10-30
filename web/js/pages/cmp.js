@@ -26,7 +26,9 @@
     return '<div class="stat stat--' + tone + '"><div class="stat__k">' + U.esc(k) + '</div>' +
       '<div class="stat__v"><span class="u-num">' + U.esc(v) + '</span></div></div>';
   }
+  var cmpPrevSeq = 0;
   function showCmpResult(r) {
+    var seq = ++cmpPrevSeq;   /* 预览异步追加的过期防护 */
     var t = r.totals || {}, by = r.by_kind || {};
     var html = '<div class="stat4">' +
       statHtml('same', '匹配', t.matched || 0) +
@@ -64,6 +66,7 @@
     var pv = el('cmpPrev');
     if (r.preview) {
       U.previewData(r.preview).then(function (node) {
+        if (seq !== cmpPrevSeq) return;   /* 已有更新渲染，丢弃过期图 */
         if (node) { pv.innerHTML = ''; pv.appendChild(node); }
         else { pv.innerHTML = U.emptyHtml(EMPTY_ICON, '预览图加载失败，请打开输出目录查看'); }
       });
@@ -115,9 +118,10 @@
     clearInterval(pollTimer);
     pollTimer = setInterval(function () {
       A.call('get_cmp_status').then(function (s) {
+        var stop = (s.state === 'done' || s.state === 'error');
+        if (stop) clearInterval(pollTimer);   /* 先停表：apply 抛错也不会持续轮询 */
         apply(s);
-        if (s.state === 'done' || s.state === 'error') {
-          clearInterval(pollTimer);
+        if (stop) {
           if (syncReady) syncReady();
           U.toast(s.state === 'error' ? '比对失败' : '变化比对完成', s.state === 'error' ? 'err' : 'good');
         }

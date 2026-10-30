@@ -27,7 +27,9 @@
     return '<div class="stat"><div class="stat__k">' + U.esc(k) + '</div>' +
       '<div class="stat__v"><span class="u-num">' + U.esc(v) + '</span></div></div>';
   }
+  var domPrevSeq = 0;
   function showDomResult(r) {
+    var seq = ++domPrevSeq;   /* 预览异步追加的过期防护 */
     var html = '<div class="stat4">' +
       statHtml('标线（条）', r.lines) +
       statHtml('面状标线（个）', r.areas) +
@@ -37,6 +39,7 @@
     U.setPath('domResPath', r.gdb || '');
     if (r.preview) {
       U.previewData(r.preview).then(function (img) {
+        if (seq !== domPrevSeq) return;   /* 已有更新渲染，丢弃过期图 */
         if (img) { el('domResult').appendChild(img); }
         else {
           var p = document.createElement('p');
@@ -106,9 +109,10 @@
     clearInterval(pollTimer);
     pollTimer = setInterval(function () {
       A.call('get_dom_status').then(function (s) {
+        var stop = (s.state === 'done' || s.state === 'error');
+        if (stop) clearInterval(pollTimer);   /* 先停表：apply 抛错也不会持续轮询 */
         apply(s);
-        if (s.state === 'done' || s.state === 'error') {
-          clearInterval(pollTimer);
+        if (stop) {
           if (syncReady) syncReady();
           U.toast(s.state === 'error' ? '正射提取失败' : '正射提取完成', s.state === 'error' ? 'err' : 'good');
         }

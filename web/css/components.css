@@ -292,15 +292,16 @@
    Tiles — 进度四格
    ============================================================ */
 .tiles {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 8px; margin-top: 10px;
 }
 .tile {
   display: flex; align-items: center; gap: var(--sp-2);
   padding: 8px 10px; border-radius: var(--r-md);
   background: var(--bg-sunken); border: 1px solid transparent; min-width: 0;
+  flex-wrap: wrap;   /* 窄卡时文字自动落到图标下方，避免截断 */
 }
-.tile__body { min-width: 0; }
+.tile__body { min-width: 0; flex: 1 1 auto; }
 .tile__t {
   width: 24px; height: 24px; border-radius: var(--r-sm); flex-shrink: 0;
   background: #fff; display: flex; align-items: center; justify-content: center;
@@ -332,13 +333,14 @@
    Stat — 结果统计格（默认白底描边，tone 变体才铺色）
    ============================================================ */
 .stat4 {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 8px; margin: 0;
 }
 .stat {
   background: var(--bg-card); border: 1px solid var(--line);
   border-radius: var(--r-md); padding: 7px 12px; min-width: 0;
   display: flex; align-items: baseline; gap: 8px;
+  flex-wrap: wrap;   /* 窄卡时数值自动落到第二行，避免截断 */
 }
 .stat__k { font-size: var(--fs-sm); color: var(--ink-3); display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .stat__v {
