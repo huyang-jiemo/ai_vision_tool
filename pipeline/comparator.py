@@ -1,4 +1,4 @@
-"""变化比对：自动提取成果 vs 存量地图 GDB → 新增 / 灭失 / 改动 三分类变化图层。
+"""变化比对：自动提取成果 vs 存量地图 GDB → 新增 / 缺失 / 改动 三分类变化图层。
 
 匹配规则（按几何类型）：
 - 线（标线）：缓冲区重叠（1.5m）+ 方向夹角 <25°；匹配后中点偏移 >2m 或长度比
@@ -24,7 +24,7 @@ GEOM_KIND = {"LineString": "lines", "MultiLineString": "lines",
              "Polygon": "areas", "MultiPolygon": "areas",
              "Point": "points", "MultiPoint": "points"}
 
-CN = {"new": "新增", "missing": "灭失", "modified": "改动"}
+CN = {"new": "新增", "missing": "缺失", "modified": "改动"}
 
 
 class Comparator:
@@ -67,7 +67,7 @@ class Comparator:
         """以存量为中心的覆盖式匹配：
         - 存量线被新线（可多段）覆盖 ≥50% → 匹配
         - 无覆盖且附近（3m 内）存在平行新线 → 改动
-        - 其余 → 灭失；未被任何存量覆盖的新线 → 新增"""
+        - 其余 → 缺失；未被任何存量覆盖的新线 → 新增"""
         from shapely.strtree import STRtree
         from shapely.ops import unary_union
         tree = STRtree(list(ref_g.geometry))
@@ -222,7 +222,7 @@ class Comparator:
             wlog(f"{kind}：新成果 {len(new_all)}，存量 {len(ref_all)}")
 
             if new_g is None:
-                # 新成果完全没有该类要素 → 无法判定，跳过（不算灭失）
+                # 新成果完全没有该类要素 → 无法判定，跳过（不算缺失）
                 wlog(f"  新成果未包含{kind}要素，跳过该类比对")
                 results[kind] = {"new": 0, "missing": 0, "modified": 0, "matched": 0,
                                  "skipped": True}
@@ -245,7 +245,7 @@ class Comparator:
                 changes["modified"].append((kind, ref_src[j], ref_g.iloc[j], note))
             results[kind] = {"new": len(new_only), "missing": len(ref_only),
                              "modified": len(modified), "matched": len(pairs)}
-            wlog(f"  匹配 {len(pairs)}，新增 {len(new_only)}，灭失 {len(ref_only)}，改动 {len(modified)}")
+            wlog(f"  匹配 {len(pairs)}，新增 {len(new_only)}，缺失 {len(ref_only)}，改动 {len(modified)}")
 
         # ---------- 写变化图层 ----------
         gdb_path = out / "变化比对.gdb"
@@ -308,7 +308,7 @@ class Comparator:
         }
         (out / "比对报告.json").write_text(
             json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
-        wlog(f"比对完成：新增 {stats['totals']['new']}，灭失 {stats['totals']['missing']}，"
+        wlog(f"比对完成：新增 {stats['totals']['new']}，缺失 {stats['totals']['missing']}，"
              f"改动 {stats['totals']['modified']}，匹配 {stats['totals']['matched']}，"
              f"耗时 {stats['seconds']}s")
         return stats
@@ -385,7 +385,7 @@ class Comparator:
         for kind, src, geom, note in changes["new"]:
             draw(geom, (0, 200, 0), 2)            # 新增 绿
         for kind, src, geom, note in changes["missing"]:
-            draw(geom, (0, 0, 255), 2)            # 灭失 红
+            draw(geom, (0, 0, 255), 2)            # 缺失 红
         for kind, src, geom, note in changes["modified"]:
             draw(geom, (0, 140, 255), 2)          # 改动 橙
         from .imgio import imwrite_unicode

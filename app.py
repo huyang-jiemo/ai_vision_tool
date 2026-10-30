@@ -82,6 +82,19 @@ def frozen_selftest():
     return False
 
 
+# 退出确认框文案：pywebview 的原生确认框默认英文，这里统一覆盖为中文。
+# 文案同时点明「任务运行中退出会中断」，避免用户以为只是关掉窗口。
+QUIT_LOCALIZATION = {
+    "global.quitConfirmation": (
+        "确定要退出众源感知解译工具吗？\n\n"
+        "如仍有任务正在运行，退出将中断当前任务。"
+    ),
+    "global.quit": "退出",
+    "global.ok": "确定",
+    "global.cancel": "取消",
+}
+
+
 def main():
     if frozen_selftest():
         return
@@ -94,6 +107,9 @@ def main():
         height=900,
         min_size=(1080, 700),
         background_color="#F2F3F5",
+        # 关闭窗口前弹系统确认框（macOS 为 NSAlert，Windows 为系统 MessageBox）
+        confirm_close=True,
+        localization=QUIT_LOCALIZATION,
     )
     webview.start(debug=("--debug" in sys.argv),
                   gui="cocoa" if sys.platform == "darwin" else None)
