@@ -331,7 +331,7 @@ class Api:
         try:
             os.makedirs(output_dir, exist_ok=True)
             ts = time.strftime("%Y%m%d_%H%M%S")
-            log_path = os.path.join(output_dir, f"{ts}.log")
+            log_path = os.path.join(output_dir, f"运行日志_{ts}.log")
             log_fh = open(log_path, "a", encoding="utf-8")
             log_fh.write(f"==== {title} {ts} ====\n{header}\n\n")
             log_fh.flush()
@@ -386,7 +386,7 @@ class Api:
         try:
             os.makedirs(output_dir, exist_ok=True)
             ts = time.strftime("%Y%m%d_%H%M%S")
-            log_path = os.path.join(output_dir, f"{ts}.log")
+            log_path = os.path.join(output_dir, f"运行日志_{ts}.log")
             log_fh = open(log_path, "a", encoding="utf-8")
             log_fh.write(f"==== 车载影像提取 {ts} ====\n")
             log_fh.write(f"数据源: {data_dir}\n输出目录: {output_dir}\n"

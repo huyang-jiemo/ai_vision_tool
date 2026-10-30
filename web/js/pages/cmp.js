@@ -64,9 +64,8 @@
     var pv = el('cmpPrev');
     if (r.preview) {
       U.previewData(r.preview).then(function (node) {
-        if (!node) return;
-        pv.innerHTML = '';
-        pv.appendChild(node);
+        if (node) { pv.innerHTML = ''; pv.appendChild(node); }
+        else { pv.innerHTML = U.emptyHtml(EMPTY_ICON, '预览图加载失败，请打开输出目录查看'); }
       });
     } else {
       pv.innerHTML = U.emptyHtml(EMPTY_ICON, '本次比对未生成预览图');

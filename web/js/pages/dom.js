@@ -37,7 +37,13 @@
     U.setPath('domResPath', r.gdb || '');
     if (r.preview) {
       U.previewData(r.preview).then(function (img) {
-        if (img) el('domResult').appendChild(img);
+        if (img) { el('domResult').appendChild(img); }
+        else {
+          var p = document.createElement('p');
+          p.className = 'hint hint--err';
+          p.textContent = '预览图加载失败，请打开输出目录查看';
+          el('domResult').appendChild(p);
+        }
       });
     }
   }

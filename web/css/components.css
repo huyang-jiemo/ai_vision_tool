@@ -50,6 +50,7 @@
   border-bottom: 1px solid var(--line);
   margin-bottom: 10px;
   min-width: 0; overflow: hidden;
+  flex-shrink: 0;
 }
 .card-head__tt { display: flex; flex-direction: column; min-width: 0; flex: 0 0 auto; }
 .card-head__t1 {

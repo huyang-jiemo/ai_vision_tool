@@ -476,5 +476,7 @@ class DomExtractor:
         for g in lines:
             pts = np.array([w2p(*c) for c in g.coords], np.int32)
             cv2.polylines(img, [pts], False, (0, 255, 0), 1, cv2.LINE_AA)
-        cv2.imwrite(out_png, img)
+        from .imgio import imwrite_unicode
+        if not imwrite_unicode(out_png, img):
+            raise RuntimeError("PNG 编码失败")
         return out_png

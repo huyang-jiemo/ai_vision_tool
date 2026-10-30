@@ -136,6 +136,14 @@
    变化比对：统计卡+类别表在左列（日志下方，自适应高度），
    右列整块留给预览图
    ============================================================ */
+/* 比对页日志定高：进度卡不被压缩、左列空间不足时滚动兜底，杜绝日志溢出盖住结果卡 */
+#tab-cmp .card--fill[data-order="run"] { flex: 0 0 auto; }
+#tab-cmp .card--fill[data-order="run"] .log-wrap { flex: 0 0 auto; }
+#tab-cmp .card--fill[data-order="run"] .log {
+  flex: 0 0 auto; height: var(--log-h); min-height: 0; max-height: none;
+}
+#tab-cmp .col { overflow-y: auto; }
+#tab-dom .col { overflow-y: auto; }
 #tab-cmp .card--result { flex: 0 0 auto; }
 #tab-cmp .card--result .tbl-wrap { flex: 0 1 auto; max-height: 260px; }
 #tab-cmp .card--result .result-body .empty { min-height: 132px; }

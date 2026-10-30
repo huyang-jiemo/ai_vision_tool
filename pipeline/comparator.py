@@ -388,4 +388,6 @@ class Comparator:
             draw(geom, (0, 0, 255), 2)            # 灭失 红
         for kind, src, geom, note in changes["modified"]:
             draw(geom, (0, 140, 255), 2)          # 改动 橙
-        cv2.imwrite(out_png, img)
+        from .imgio import imwrite_unicode
+        if not imwrite_unicode(out_png, img):
+            raise RuntimeError("PNG 编码失败")

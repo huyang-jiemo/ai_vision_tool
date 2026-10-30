@@ -154,7 +154,8 @@ class Pipeline:
                 # 预览
                 prev = work.copy()
                 self._draw(prev, dets, lanes)
-                cv2.imwrite(str(out / "preview" / f"{im_rec.session}__{im_rec.filename}"), prev)
+                from .imgio import imwrite_unicode
+                imwrite_unicode(str(out / "preview" / f"{im_rec.session}__{im_rec.filename}"), prev)
 
                 if progress_cb:
                     cats = {}
