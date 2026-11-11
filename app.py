@@ -145,24 +145,29 @@ def _win_runtime_ok():
     return False, 'WEBVIEW2'
 
 
-def windows_env_check():
-    """仅 Windows：缺失运行时时弹系统对话框说明原因与装法，避免白屏。"""
+def windows_runtime_setup():
+    """确保 Windows 有可用的 WebView2 运行时。
+
+    优先使用随包分发的固定版运行时（webview2-runtime/，与程序同目录）：
+    内网/无网环境零安装、零下载、无需管理员权限，解压即可用。
+    固定版缺失时回退系统安装的运行时；两者都缺失才弹提示退出。
+    """
     if sys.platform != 'win32':
         return
+    if getattr(sys, 'frozen', False):
+        bundled = os.path.join(os.path.dirname(sys.executable), 'webview2-runtime')
+        if os.path.isfile(os.path.join(bundled, 'msedgewebview2.exe')):
+            webview.settings['WEBVIEW2_RUNTIME_PATH'] = bundled   # 固定版随包运行时
+            return
     ok, missing = _win_runtime_ok()
     if ok:
         return
     import ctypes
     if missing == 'WEBVIEW2':
-        msg = ('未检测到微软 WebView2 运行时（或版本过低），\n'
-               '工具界面无法渲染，打开后会是空白窗口。\n\n'
-               '解决方法：\n'
-               '  1. 打开本程序所在目录下的 webview2-runtime 文件夹，\n'
-               '     双击 MicrosoftEdgeWebView2RuntimeInstallerX64.exe 安装\n'
-               '     （离线安装包，无需联网；如提示需要管理员权限，请联系 IT）；\n'
-               '  2. 或在有网的电脑上从微软官网下载 WebView2 离线安装包，\n'
-               '     拷贝到本机安装。\n\n'
-               '安装完成后重新打开本工具即可。')
+        msg = ('未检测到微软 WebView2 运行时，工具界面无法渲染（打开后窗口空白）。\n\n'
+               '当前使用的交付包不含随包运行时。请向交付方索取包含 webview2-runtime\n'
+               '目录的完整交付包：解压后 webview2-runtime 文件夹与程序放在同一目录，\n'
+               '无需安装、无需联网即可运行。')
     else:
         msg = ('未检测到 .NET Framework 4.6.2 或更高版本，工具界面无法渲染。\n'
                '请先安装 .NET Framework 4.6.2 及以上版本后再运行本工具。')
@@ -192,7 +197,7 @@ def dump_startup_error():
 
 
 def main():
-    windows_env_check()
+    windows_runtime_setup()
     if frozen_selftest():
         return
     api = Api()
