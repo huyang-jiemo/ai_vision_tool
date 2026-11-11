@@ -47,6 +47,15 @@ jobs:
         run: python models/download_models.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
+      # 无网交付：随包分发 WebView2 离线安装器（Evergreen Standalone x64），
+      # 缺少 WebView2 的机器（精简版/内网机）打开会白屏，装上即可运行
+      - name: Bundle WebView2 offline installer
+        run: |
+          New-Item -ItemType Directory -Path dist/AIVisionTool/webview2-runtime -Force | Out-Null
+          curl.exe -L --fail --retry 3 -o dist/AIVisionTool/webview2-runtime/MicrosoftEdgeWebView2RuntimeInstallerX64.exe "https://go.microsoft.com/fwlink/?linkid=2091953"
+          $f = Get-Item dist/AIVisionTool/webview2-runtime/MicrosoftEdgeWebView2RuntimeInstallerX64.exe
+          if ($f.Length -lt 50MB) { throw "WebView2 installer 下载不完整（$($f.Length) 字节）" }
+          Write-Host "WebView2 installer: $($f.Length / 1MB -as [int]) MB"
       - name: Package .exe
         run: Compress-Archive -Path dist/AIVisionTool -DestinationPath AIVisionTool-Windows-x64.zip
       - uses: actions/upload-artifact@v4

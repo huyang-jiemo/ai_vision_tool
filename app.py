@@ -95,7 +95,104 @@ QUIT_LOCALIZATION = {
 }
 
 
+# ─────────── Windows 环境检查 ───────────
+# pywebview 在检测不到 WebView2 运行时（或 .NET < 4.6.2）时会静默回退到
+# IE 内核渲染，现代界面直接白屏且无任何提示。这里在开窗前显式检测，
+# 缺什么就用系统对话框讲清楚，并指引导用户使用随包分发的离线安装器。
+
+_WEBVIEW2_KEYS = (
+    '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',   # Evergreen Runtime
+    '{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}',   # Beta
+    '{0D50BFEC-CD6A-4F9A-964C-C7416E3ACB10}',   # Developer
+    '{65C35B14-6C1D-4122-AC46-7148CC9D6497}',   # Canary
+)
+_WEBVIEW2_MIN = (86, 0, 622, 0)
+
+
+def _win_runtime_ok():
+    """返回 (是否满足, 缺失项)；判定口径与 pywebview 保持一致。"""
+    import winreg
+
+    def read_pv(root, key):
+        paths = [rf'SOFTWARE\Microsoft\EdgeUpdate\Clients\{key}']
+        if root == winreg.HKEY_LOCAL_MACHINE:
+            paths.append(rf'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{key}')
+        for path in paths:
+            try:
+                with winreg.OpenKey(root, path) as k:
+                    v, _ = winreg.QueryValueEx(k, 'pv')
+                    parts = tuple(int(x) for x in str(v).split('.') if x.isdigit())
+                    if parts >= _WEBVIEW2_MIN:
+                        return True
+            except (OSError, ValueError):
+                continue
+        return False
+
+    try:
+        with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full') as k:
+            release, _ = winreg.QueryValueEx(k, 'Release')
+        if int(release) < 394802:          # .NET 4.6.2
+            return False, 'NET'
+    except (OSError, ValueError):
+        return False, 'NET'
+
+    for key in _WEBVIEW2_KEYS:
+        if (read_pv(winreg.HKEY_CURRENT_USER, key)
+                or read_pv(winreg.HKEY_LOCAL_MACHINE, key)):
+            return True, ''
+    return False, 'WEBVIEW2'
+
+
+def windows_env_check():
+    """仅 Windows：缺失运行时时弹系统对话框说明原因与装法，避免白屏。"""
+    if sys.platform != 'win32':
+        return
+    ok, missing = _win_runtime_ok()
+    if ok:
+        return
+    import ctypes
+    if missing == 'WEBVIEW2':
+        msg = ('未检测到微软 WebView2 运行时（或版本过低），\n'
+               '工具界面无法渲染，打开后会是空白窗口。\n\n'
+               '解决方法：\n'
+               '  1. 打开本程序所在目录下的 webview2-runtime 文件夹，\n'
+               '     双击 MicrosoftEdgeWebView2RuntimeInstallerX64.exe 安装\n'
+               '     （离线安装包，无需联网；如提示需要管理员权限，请联系 IT）；\n'
+               '  2. 或在有网的电脑上从微软官网下载 WebView2 离线安装包，\n'
+               '     拷贝到本机安装。\n\n'
+               '安装完成后重新打开本工具即可。')
+    else:
+        msg = ('未检测到 .NET Framework 4.6.2 或更高版本，工具界面无法渲染。\n'
+               '请先安装 .NET Framework 4.6.2 及以上版本后再运行本工具。')
+    MB_ICONWARNING = 0x30
+    MB_SETFOREGROUND = 0x10000
+    MB_TOPMOST = 0x40000
+    ctypes.windll.user32.MessageBoxW(
+        0, msg, '环境检查提示',
+        MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST)
+    sys.exit(1)
+
+
+def dump_startup_error():
+    """把启动/运行异常写入本地日志，供离线排障（路径返回给用户）。"""
+    import tempfile
+    import traceback
+    base = os.environ.get('LOCALAPPDATA') or tempfile.gettempdir()
+    d = os.path.join(base, 'AIVisionTool')
+    try:
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, '启动错误.log')
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(traceback.format_exc())
+        return p
+    except Exception:
+        return None
+
+
 def main():
+    windows_env_check()
     if frozen_selftest():
         return
     api = Api()
@@ -111,8 +208,15 @@ def main():
         confirm_close=True,
         localization=QUIT_LOCALIZATION,
     )
-    webview.start(debug=("--debug" in sys.argv),
-                  gui="cocoa" if sys.platform == "darwin" else None)
+    try:
+        webview.start(debug=("--debug" in sys.argv),
+                      gui="cocoa" if sys.platform == "darwin" else None)
+    except Exception:
+        log_path = dump_startup_error()
+        if sys.platform == 'win32':
+            import ctypes
+            msg = '工具启动异常，已退出。\n\n错误日志：%s' % (log_path or '写入失败')
+            ctypes.windll.user32.MessageBoxW(0, msg, '环境检查提示', 0x30 | 0x10000)
 
 
 if __name__ == "__main__":
