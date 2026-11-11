@@ -11,21 +11,45 @@
 
 ## 快速开始（开发）
 ```bash
-bash run.command        # macOS
+bash run.command        # macOS：建 venv → 装依赖 → 起界面
 run.bat                # Windows
 ```
-构建与发布由 GitHub Actions 完成（见 `.github/workflows/build.yml`，master 分支触发）。
+
+## 从源码构建安装包
+仓库只保留源码（约 30 MB），克隆即可构建；推理权重 `models/yolo11n.onnx` 已入库，
+**无需联网下载模型**。
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt -r requirements-build.txt
+pyinstaller build.spec --noconfirm
+```
+
+产物：
+- macOS：`dist/AIVisionTool.app`（交付包用 `ditto -c -k --sequesterRsrc` 压成 zip）
+- Windows：`dist/AIVisionTool/AIVisionTool.exe`（onedir 布局）
+
+> `build/`、`dist/` 为本地构建缓存，已在 `.gitignore` 中，不随仓库分发。
+>
+> ⚠️ Windows 交付包还需内置 **WebView2 固定版运行时**（解压即用、目标机零安装零下载），
+> 这一步由 CI 自动完成（见 `.github/workflows/build.yml`）。本地手工打包默认不含，
+> 在缺少 WebView2 的内网机器上会因回退 IE 内核而白屏。
+
+构建与发布由 GitHub Actions 完成（见 `.github/workflows/build.yml`，master 分支触发构建、tag `v*` 发布）。
 
 ## 目录结构
 ```
 app.py / api.py        桌面壳与 JS↔Python 桥
-web/index.html         单文件 UI
+web/                   唯一界面源（index.html + css/ + js/）
 pipeline/              解译核心（config/data_loader/undistort/detector/
-                       lane_detector/georeference/change_detector/exporter/processor）
-models/                download_models.py 构建期导出 yolo11n.onnx
-requirements*.txt     运行时 / 构建期依赖
+                       lane_detector/georeference/change_detector/exporter/imgio/processor）
+models/                yolo11n.onnx（入库权重）+ download_models.py（重新导出用）
+tools/                 预览构建、DOM 车道提取等辅助脚本
+docs/                  交付文档（说明 / 技术设计 / 测试文档，md + docx）
+requirements*.txt      运行时 / 构建期依赖
 build.spec             PyInstaller 打包
 ```
+本地 IDE 与工具目录（`.idea/`、`.workbuddy/`、`.venv/`）不入库。
 
 ## 数据源
 目录约定（已按真实数据核对）：
