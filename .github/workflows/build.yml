@@ -48,14 +48,47 @@ jobs:
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       # 无网交付：随包分发 WebView2 离线安装器（Evergreen Standalone x64），
-      # 缺少 WebView2 的机器（精简版/内网机）打开会白屏，装上即可运行
+      # 缺少 WebView2 的机器（精简版/内网机）打开会白屏，装上即可运行。
+      # 直链随版本变化且旧 fwlink 已失效（302 -> tbd），因此从微软官方
+      # 自动维护的 winget 清单仓库解析最新版 x64 直链与 SHA256。
       - name: Bundle WebView2 offline installer
+        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist/AIVisionTool/webview2-runtime -Force | Out-Null
-          curl.exe -L --fail --retry 3 -o dist/AIVisionTool/webview2-runtime/MicrosoftEdgeWebView2RuntimeInstallerX64.exe "https://go.microsoft.com/fwlink/?linkid=2091953"
-          $f = Get-Item dist/AIVisionTool/webview2-runtime/MicrosoftEdgeWebView2RuntimeInstallerX64.exe
+          $ErrorActionPreference = 'Stop'
+          $H = @{ 'User-Agent' = 'ai-vision-tool-ci' }
+          $vers = @(); $page = 1
+          while ($page -le 30) {
+            $r = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/m/Microsoft/EdgeWebView2Runtime?per_page=100&page=$page" -Headers $H
+            if (-not $r -or $r.Count -eq 0) { break }
+            $vers += $r | ForEach-Object { $_.name }
+            $page++
+          }
+          $latest = ($vers | Where-Object { $_ -match '^[\d.]+$' } |
+            Sort-Object { [version]$_ } -Descending | Select-Object -First 1)
+          if (-not $latest) { throw 'winget-pkgs 版本目录为空' }
+          Write-Host "Latest WebView2 runtime: $latest"
+          $yamlUrl = "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/m/Microsoft/EdgeWebView2Runtime/$latest/Microsoft.EdgeWebView2Runtime.installer.yaml"
+          $yaml = (Invoke-WebRequest $yamlUrl -Headers $H).Content
+          $url = $null; $sha = $null; $want = $false
+          foreach ($line in ($yaml -split "`r?`n")) {
+            $s = $line.Trim()
+            if ($s.EndsWith('Architecture: x64')) { $want = $true; $url = $null; $sha = $null; continue }
+            if ($want -and (-not $url) -and $s.StartsWith('InstallerUrl:')) { $url = $s.Substring('InstallerUrl:'.Length).Trim() }
+            if ($want -and $s.StartsWith('InstallerSha256:')) { $sha = $s.Substring('InstallerSha256:'.Length).Trim(); break }
+          }
+          if (-not $url) { throw '未解析到 x64 InstallerUrl' }
+          Write-Host "InstallerUrl: $url"
+          $dst = 'dist/AIVisionTool/webview2-runtime/MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
+          New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
+          curl.exe -L --fail --retry 3 -o $dst $url
+          if ($sha) {
+            $h = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
+            if ($h -ne $sha.ToLower()) { throw "SHA256 校验失败：$h" }
+            Write-Host "SHA256 校验通过"
+          }
+          $f = Get-Item $dst
           if ($f.Length -lt 50MB) { throw "WebView2 installer 下载不完整（$($f.Length) 字节）" }
-          Write-Host "WebView2 installer: $($f.Length / 1MB -as [int]) MB"
+          Write-Host "WebView2 installer: $([int]($f.Length / 1MB)) MB"
       - name: Package .exe
         run: Compress-Archive -Path dist/AIVisionTool -DestinationPath AIVisionTool-Windows-x64.zip
       - uses: actions/upload-artifact@v4
