@@ -91,6 +91,7 @@ jobs:
           $appRoot = 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application'
           if (-not (Test-Path $appRoot)) { $appRoot = "$env:ProgramFiles\Microsoft\EdgeWebView\Application" }
           $verDir = Get-ChildItem $appRoot -Directory -ErrorAction Stop |
+            Where-Object { $_.Name -match '^\d+(\.\d+)+$' } |
             Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
           if (-not (Test-Path (Join-Path $verDir.FullName 'msedgewebview2.exe'))) {
             throw "运行时目录缺少 msedgewebview2.exe：$($verDir.FullName)"
