@@ -16,6 +16,7 @@ import hashlib
 import os
 import re
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -35,6 +36,15 @@ _FONT_CANDIDATES = [
     "/System/Library/Fonts/STHeiti Medium.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
 ]
+
+
+def _utf8_stdout() -> None:
+    """Windows 控制台默认可能是 cp1252/cp936，打印中文会 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 
 def _repo_version() -> str:
@@ -177,6 +187,7 @@ def make_payload(version: str) -> str:
 
 
 def main() -> None:
+    _utf8_stdout()
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", default="")
     ap.add_argument("--no-splash", action="store_true")

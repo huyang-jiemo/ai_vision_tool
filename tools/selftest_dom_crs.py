@@ -32,6 +32,15 @@ from pipeline.dom_extractor import DomExtractor
 SIZE = 600
 
 
+def _utf8_stdout() -> None:
+    """Windows 控制台默认可能是 cp1252/cp936，打印中文会 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _make_dom(path: str, crs, origin: tuple[float, float]) -> None:
     """合成一张带白色标线的简易 DOM（0.1m/px）。"""
     img = np.full((SIZE, SIZE, 3), 90, np.uint8)
@@ -65,6 +74,7 @@ def _run_case(name: str, crs, origin, expect_ok: bool,
 
 
 def main() -> int:
+    _utf8_stdout()
     results = [
         _run_case("本地坐标系（武汉范围）→ 按源坐标处理",
                   'LOCAL_CS["Nonearth",UNIT["Meter",1.0]]',

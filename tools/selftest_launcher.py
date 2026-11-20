@@ -21,6 +21,15 @@ sys.path.insert(0, str(ROOT))
 import launcher  # noqa: E402
 
 
+def _utf8_stdout() -> None:
+    """Windows 控制台默认可能是 cp1252/cp936，打印中文会 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _payload(path: Path, files: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in files.items():
@@ -44,6 +53,7 @@ def _run(mod, sandbox: Path, calls: list):
 
 
 def main() -> int:
+    _utf8_stdout()
     sandbox = Path(tempfile.mkdtemp(prefix="avt_launcher_selftest_"))
     work = sandbox / "work"
     work.mkdir()

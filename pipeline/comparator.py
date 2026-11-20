@@ -322,7 +322,8 @@ class Comparator:
         import shapely
         from pyproj import CRS
         from rasterio.enums import Resampling
-        from rasterio.windows import from_bounds
+        from rasterio.windows import Window, from_bounds
+        from .imgio import read_rgb
         from shapely.geometry import box
 
         local = CRS.from_proj4(LOCAL_PROJ4)
@@ -355,11 +356,21 @@ class Comparator:
                 sx0, sy0, sx1, sy1 = minx, miny, maxx, maxy
             win = from_bounds(min(sx0, sx1), min(sy0, sy1), max(sx0, sx1), max(sy0, sy1),
                               dom.transform).round_offsets().round_lengths()
+            # 变化点靠近影像边缘时，外扩 40m 后的窗口会越界；rasterio 默认
+            # boundless=False 会直接报错，先裁剪到影像范围
+            col0 = max(0, int(round(win.col_off)))
+            row0 = max(0, int(round(win.row_off)))
+            col1 = min(int(dom.width), int(round(win.col_off + win.width)))
+            row1 = min(int(dom.height), int(round(win.row_off + win.height)))
+            if col1 - col0 < 1 or row1 - row0 < 1:
+                raise RuntimeError(
+                    "变化要素不在正射影像覆盖范围内，无法生成比对预览")
+            win = Window(col0, row0, col1 - col0, row1 - row0)
             OW = 1800
             scale = win.width / OW
             OH = max(1, int(win.height / scale))
             wt = dom.window_transform(win)
-            img = dom.read([1, 2, 3], window=win, out_shape=(3, OH, OW),
+            img = read_rgb(dom, window=win, out_shape=(3, OH, OW),
                            resampling=Resampling.bilinear).transpose(1, 2, 0)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             inv = ~wt

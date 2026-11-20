@@ -81,14 +81,18 @@
     function toBottom() { box.scrollTop = box.scrollHeight; }
     function refreshJump() { if (jump) jump.hidden = !(self.auto && !self.follow); }
 
-    self.push = function (logs) {
+    self.push = function (logs, total) {
       logs = logs || [];
-      if (logs.length < self.n) { box.innerHTML = ''; self.n = 0; self.lines = []; }
-      if (logs.length <= self.n) return;
+      total = (typeof total === 'number') ? total : logs.length;
+      /* total 是后端累计行数，logs 只是最后 200 行；按绝对行号取增量，
+         否则日志超过 200 行后数组长度封顶，界面会停止刷新 */
+      if (total < self.n) { box.innerHTML = ''; self.n = 0; self.lines = []; }
+      var start = Math.max(0, logs.length - (total - self.n));
+      if (start >= logs.length) return;
 
       var stick = self.auto ? (self.follow || atBottom()) : false;
       var frag = document.createDocumentFragment();
-      for (var i = self.n; i < logs.length; i++) {
+      for (var i = start; i < logs.length; i++) {
         var txt = String(logs[i]);
         var cls = logLineClass(txt);
         var d = document.createElement('span');
@@ -103,7 +107,7 @@
         frag.appendChild(d);
       }
       box.appendChild(frag);
-      self.n = logs.length;
+      self.n = total;
       self.lines = logs.slice(-MAX_LOG_NODES);
       while (box.childNodes.length > MAX_LOG_NODES) box.removeChild(box.firstChild);
 

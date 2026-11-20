@@ -36,6 +36,15 @@ DEFAULT_OUTPUT = ROOT / "dist_single" / "AIVisionTool-Windows-x64.exe"
 MAIN_EXE = "AIVisionTool.exe"
 
 
+def _utf8_stdout() -> None:
+    """Windows 控制台默认可能是 cp1252/cp936，打印中文会 UnicodeEncodeError。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _check_launcher(path: Path) -> None:
     try:
         zf, fp = launcher.open_appended_zip(str(path))
@@ -92,6 +101,7 @@ def _verify(output: Path, payload_path: Path) -> int:
 
 
 def main() -> None:
+    _utf8_stdout()
     ap = argparse.ArgumentParser(description="生成追加 payload 的单文件 exe")
     ap.add_argument("--launcher", type=Path, default=DEFAULT_LAUNCHER)
     ap.add_argument("--payload", type=Path, default=DEFAULT_PAYLOAD)

@@ -134,6 +134,7 @@ class Pipeline:
                 for ln in lanes:
                     coords = [(px / scale, py / scale) for px, py in ln.points_px]
                     gcoords = []
+                    dists = []
                     ok = True
                     for px, py in coords:
                         g = self.geo.pixel_to_ground(px, py, pose)
@@ -141,8 +142,8 @@ class Pipeline:
                             ok = False
                             break
                         gcoords.append((g.x, g.y))
+                        dists.append(g.dist)
                     if ok and gcoords:
-                        dists = [self.geo.pixel_to_ground(px, py, pose).dist for px, py in coords]
                         lane_feat.append({
                             "session": im_rec.session, "image": im_rec.filename, "side": ln.side,
                             "points": gcoords, "avg_dist": float(np.mean(dists)),

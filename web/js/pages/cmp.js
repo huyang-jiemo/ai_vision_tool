@@ -82,7 +82,7 @@
 
   /* ─────────── 快照应用 ─────────── */
   function apply(s) {
-    log.push(s.logs);
+    log.push(s.logs, s.log_seq);
     if (s.state === 'error') {
       finished = false;
       U.setChip(el('cmpChip'), CHIP, 'fail');

@@ -20,6 +20,34 @@ def imwrite_unicode(path, img, params=None):
     return True
 
 
+def read_rgb(ds, window=None, out_shape=None, resampling=None):
+    """从 rasterio 数据集读取 RGB（band-first，3 波段），适配 1/2/3+ 波段。
+
+    正射影像可能是灰度（1 波段）或带 alpha/NIR（4 波段），直接
+    read([1, 2, 3]) 在 1 波段时会抛 IndexError。这里按实际波段数读取，
+    不足 3 波段时复制灰度通道。
+    """
+    import numpy as np
+    n = max(1, min(int(getattr(ds, "count", 3)), 3))
+    kwargs = {}
+    if window is not None:
+        kwargs["window"] = window
+    if out_shape is not None:
+        shape = tuple(out_shape)
+        if len(shape) == 3:
+            shape = (n,) + shape[1:]
+        kwargs["out_shape"] = shape
+    if resampling is not None:
+        kwargs["resampling"] = resampling
+    arr = ds.read(list(range(1, n + 1)), **kwargs)
+    if n == 1:
+        arr = np.repeat(arr, 3, axis=0)
+    elif n == 2:
+        # 灰度 + alpha/mask：用灰度复制，避免把 alpha 当作蓝色
+        arr = np.repeat(arr[:1], 3, axis=0)
+    return arr
+
+
 def imread_unicode(path, flags=None):
     """读取路径可能含中文的图像（PIL 不可用时的兜底）。失败返回 None。"""
     import cv2

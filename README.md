@@ -73,7 +73,7 @@ web/                   唯一界面源（index.html + css/ + js/）
 pipeline/              解译核心（config/data_loader/undistort/detector/
                        lane_detector/georeference/change_detector/exporter/imgio/processor）
 models/                yolo11n.onnx（入库权重）+ download_models.py（重新导出用）
-tools/                 预览构建、DOM 车道提取、坐标自检、payload/单文件生成
+tools/                 预览构建、DOM 车道提取、坐标/启动器/回归自检、payload 与单文件生成
 docs/                  交付文档（说明 / 技术设计 / 测试文档，md + docx）
 requirements*.txt      运行时 / 构建期依赖
 build.spec             PyInstaller onedir 打包（主程序）

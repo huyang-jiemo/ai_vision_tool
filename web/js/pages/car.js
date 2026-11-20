@@ -33,7 +33,17 @@
       .map(function (c) { return '<span class="catchip">' + c + ' ' + cats[c] + '</span>'; });
     return '<span class="catchips">' + parts.join('') + '</span>';
   }
+  var lastFilesKey = '';
   function renderFiles(files, current) {
+    /* 400ms 轮询每次全量重建 innerHTML 会让上百张图的列表不停抖动；
+       先算一个轻量签名，内容没变直接返回 */
+    var key = fileFilter + '|' + current + '|' + files.length + '|' +
+      files.map(function (f) {
+        return f.name + ':' + f.status + ':' + (f.det || 0) + ':' + (f.lane || 0) +
+          ':' + (f.cats ? Object.keys(f.cats).map(function (k) { return k + '=' + f.cats[k]; }).join('.') : '');
+      }).join('|');
+    if (key === lastFilesKey) return;
+    lastFilesKey = key;
     var box = el('fileList');
     if (!files.length) {
       box.innerHTML = '<div class="frow frow--ph">暂无文件</div>';
@@ -127,7 +137,7 @@
       eta.textContent = '剩余约 ' + U.fmtElapsed(Math.round((total - prog) * (ms / prog)));
     } else { eta.hidden = true; }
 
-    log.push(s.logs);
+    log.push(s.logs, s.log_seq);
     lastFiles = files;
     renderFiles(files, s.current);
 

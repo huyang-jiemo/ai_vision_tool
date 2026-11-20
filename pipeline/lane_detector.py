@@ -114,13 +114,19 @@ class LaneDetector:
                     remaining = remaining[~best_inl]
                     continue
                 x_top, x_bot = a * roi_top + b, a * (h - 1) + b
+                # 约束失败也必须剔除这组内点：否则下一轮会重复拟合同一批点，
+                # 既浪费迭代，也可能产出重复车道线
                 if not (0.25 * w <= x_top <= 0.75 * w):
+                    remaining = remaining[~best_inl]
                     continue
                 if not (0.02 * w <= x_bot <= 0.98 * w):
+                    remaining = remaining[~best_inl]
                     continue
                 if side == "left" and x_top <= x_bot:
+                    remaining = remaining[~best_inl]
                     continue
                 if side == "right" and x_top >= x_bot:
+                    remaining = remaining[~best_inl]
                     continue
                 resid = float(np.median(np.abs(a * Q[:, 0] + b - Q[:, 1])))
                 # 采样点仅取观测证据区间（不外推到遮挡区）

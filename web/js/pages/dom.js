@@ -73,7 +73,7 @@
       eta.textContent = '剩余约 ' + U.fmtElapsed(Math.round((total - prog) * (ms / prog)));
     } else { eta.hidden = true; }
 
-    log.push(s.logs);
+    log.push(s.logs, s.log_seq);
 
     if (s.state === 'error') {
       finished = false;

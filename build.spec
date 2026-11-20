@@ -11,6 +11,9 @@ ICON_ICNS = os.path.join(ICON_DIR, "app.icns")
 
 # rasterio 子模块大量延迟导入（serde/crs/transform 等），必须在 Analysis 之前
 # 就把 hiddenimports 备好——Analysis 之后追加 a.hiddenimports 不会生效
+# pipeline 全量子模块强制收集（放在 Analysis 之前才生效）
+PIPELINE_IMPORTS = collect_submodules("pipeline")
+
 RIO_IMPORTS = [
     "rasterio.serde", "rasterio.crs", "rasterio.transform", "rasterio.windows",
     "rasterio.enums", "rasterio.coords", "rasterio.dtypes", "rasterio.path",
@@ -39,7 +42,7 @@ a = Analysis(
         "rasterio", "rasterio._io", "rasterio._features", "rasterio._warp",
         "rasterio._err", "rasterio._crs", "rasterio.controls",
         "rasterio.shutil", "rasterio._version",
-    ] + RIO_IMPORTS,
+    ] + RIO_IMPORTS + PIPELINE_IMPORTS,
     excludes=[
         "torch", "torchvision", "ultralytics", "matplotlib",
         "PyQt5", "PySide6", "notebook", "IPython",
@@ -49,16 +52,7 @@ a = Analysis(
 
 # cv2 / numpy / onnxruntime / webview / shapely 均有官方/贡献内置 hook，
 # 会在 Analysis 阶段自动收集其二进制（.dylib/.so/.dll）与子模块，无需手动 collect_all。
-# 手动 collect_all 会把 webview/lib/runtimes（目录）等误判为二进制导致报错，
-# 因此这里仅补充 hiddenimports 以覆盖动态后端/子模块，二进制交给内置 hook。
-# 注：rasterio 子模块已在 Analysis 前通过 RIO_IMPORTS 传入，此处循环仅作
-# 其他包的兜底（分析后追加对已完成的 Analysis 无效，保留以兼容原逻辑）
-for pkg in ["webview", "shapely", "onnxruntime", "cv2", "numpy",
-            "geopandas", "pyogrio", "pandas", "pyproj"]:
-    try:
-        a.hiddenimports += collect_submodules(pkg)
-    except Exception:
-        pass
+# 手动 collect_all 会把 webview/lib/runtimes（目录）等误判为二进制导致报错。
 
 # rasterio 自带的 GDAL/PROJ 数据与二进制库（rasterio.libs）：贡献 hook 只收集部分，
 # 显式补齐 gdal_data/proj_data；.libs 由 PyInstaller 二进制依赖分析自动带入
@@ -90,13 +84,6 @@ try:
                 _src = os.path.join(_dp, _fn)
                 _dest = os.path.join("pyogrio", os.path.relpath(_src, _pkgdir))
                 a.datas.append((_dest, _src, "DATA"))
-except Exception:
-    pass
-
-# 本项目 pipeline 包全量子模块强制收集：防止个别模块经动态导入
-# （__import__/importlib）被 PyInstaller 静态分析漏掉
-try:
-    a.hiddenimports += collect_submodules("pipeline")
 except Exception:
     pass
 

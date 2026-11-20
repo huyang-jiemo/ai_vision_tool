@@ -1,5 +1,6 @@
 """JS↔Python 桥：后台线程跑 Pipeline，前端轮询状态。"""
 import base64
+from collections import deque
 import os
 import subprocess
 import sys
@@ -21,7 +22,10 @@ class RunState:
         self.progress = 0
         self.total = 0
         self.current = ""
-        self.logs = []
+        # 日志只保留最近 5000 行用于界面回放；log_total 为累计行数，
+        # 前端据此取增量（只回传尾部会在 200 行后让界面停止刷新）
+        self.logs = deque(maxlen=5000)
+        self.log_total = 0
         self.result = None
         self.error = None
         self.files = []            # 逐文件状态 [{name,status,det,lane}]
@@ -134,7 +138,8 @@ class Api:
                 "progress": self.state.progress,
                 "total": self.state.total,
                 "current": self.state.current,
-                "logs": self.state.logs[-200:],
+                "logs": list(self.state.logs)[-200:],
+                "log_seq": self.state.log_total,
                 "result": self.state.result,
                 "error": self.state.error,
                 "files": self.state.files,
@@ -144,8 +149,10 @@ class Api:
     def preview_image(self, path):
         try:
             with open(path, "rb") as f:
-                b = base64.b64encode(f.read()).decode()
-            return "data:image/jpeg;base64," + b
+                raw = f.read()
+            # 预览图既有 JPEG（逐帧）也有 PNG（正射提取），按文件头返回 MIME
+            mime = "image/png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+            return f"data:{mime};base64," + base64.b64encode(raw).decode()
         except Exception:
             return ""
 
@@ -176,16 +183,26 @@ class Api:
                 if fn.lower().endswith((".tif", ".tiff")):
                     fp = os.path.join(root, fn)
                     try:
-                        cands.append((os.path.getsize(fp), fp))
+                        size = os.path.getsize(fp)
                     except OSError:
-                        continue
+                        size = 0
+                    # 按像素总量而非文件大小选择（压缩率会让二者不一致）；
+                    # 读不了元数据时退回文件大小排序
+                    px = 0
+                    try:
+                        import rasterio
+                        with rasterio.open(fp) as ds:
+                            px = int(ds.width) * int(ds.height)
+                    except Exception:
+                        pass
+                    cands.append((px, size, fp))
         if not cands:
             return None, "目录中未找到 .tif/.tiff 影像"
         cands.sort(reverse=True)
-        tif = cands[0][1]
+        tif = cands[0][2]
         tip = ""
         if len(cands) > 1:
-            tip = (f"目录内发现 {len(cands)} 个 TIF，取其中最大的 "
+            tip = (f"目录内发现 {len(cands)} 个 TIF，取其中像素规模最大的 "
                    f"{os.path.basename(tif)}（其余未处理）")
         return tif, tip
 
@@ -210,7 +227,8 @@ class Api:
                 "progress": self.dom_state.progress,
                 "total": self.dom_state.total,
                 "current": self.dom_state.current,
-                "logs": self.dom_state.logs[-200:],
+                "logs": list(self.dom_state.logs)[-200:],
+                "log_seq": self.dom_state.log_total,
                 "result": self.dom_state.result,
                 "error": self.dom_state.error,
                 "log_file": self.dom_state.log_file,
@@ -223,7 +241,9 @@ class Api:
         with st.lock:
             st.state, st.progress, st.total = "running", 0, 0
             st.current = ""
-            st.logs, st.result, st.error = [], None, None
+            st.logs.clear()
+            st.log_total = 0
+            st.result = st.error = None
         log_fh = self._open_job_log(st, output_dir, "正射影像提取",
                                     f"影像: {tif_path}\n输出: {output_dir}\n"
                                     f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m "
@@ -285,7 +305,8 @@ class Api:
                 "progress": self.cmp_state.progress,
                 "total": self.cmp_state.total,
                 "current": self.cmp_state.current,
-                "logs": self.cmp_state.logs[-200:],
+                "logs": list(self.cmp_state.logs)[-200:],
+                "log_seq": self.cmp_state.log_total,
                 "result": self.cmp_state.result,
                 "error": self.cmp_state.error,
                 "log_file": self.cmp_state.log_file,
@@ -297,7 +318,9 @@ class Api:
         with st.lock:
             st.state, st.progress, st.total = "running", 0, 0
             st.current = ""
-            st.logs, st.result, st.error = [], None, None
+            st.logs.clear()
+            st.log_total = 0
+            st.result = st.error = None
         log_fh = self._open_job_log(st, output_dir, "变化比对",
                                     f"新成果: {new_gdb}\n存量: {stock_gdb}\n"
                                     f"输出: {output_dir}（自动生成，无需选择）")
@@ -348,6 +371,7 @@ class Api:
         def wlog(msg):
             with state.lock:
                 state.logs.append(msg)
+                state.log_total += 1
             if log_fh:
                 try:
                     log_fh.write(time.strftime("[%H:%M:%S] ") + msg + "\n")
@@ -358,16 +382,24 @@ class Api:
 
     # ---- 内部 ----
     def _get_detector(self):
-        if self._detector is not None or self._detector_err:
+        if self._detector is not None:
+            # 阈值可在两次运行之间被前端修改，缓存的检测器需要同步，
+            # 否则改阈值要重启程序才生效
+            self._detector.conf = float(self.cfg.conf_threshold)
+            self._detector.iou = float(self.cfg.iou_threshold)
             return self._detector
-        if Path(self.cfg.detector_model).exists():
-            try:
-                self._detector = YoloDetector(
-                    self.cfg.detector_model, self.cfg.imgsz,
-                    self.cfg.conf_threshold, self.cfg.iou_threshold,
-                    self.cfg.target_classes)
-            except Exception as e:
-                self._detector_err = str(e)
+        if not Path(self.cfg.detector_model).exists():
+            self._detector_err = f"模型不存在：{self.cfg.detector_model}"
+            return None
+        try:
+            self._detector = YoloDetector(
+                self.cfg.detector_model, self.cfg.imgsz,
+                self.cfg.conf_threshold, self.cfg.iou_threshold,
+                self.cfg.target_classes)
+            self._detector_err = None
+        except Exception as e:
+            # 不永久缓存错误：模型/依赖恢复后下次运行会自动重试
+            self._detector_err = str(e)
         return self._detector
 
     def _run(self, data_dir, output_dir, conf, max_images, export_shp, export_gdb):
@@ -376,7 +408,8 @@ class Api:
             self.state.progress = 0
             self.state.total = 0
             self.state.current = ""
-            self.state.logs = []
+            self.state.logs.clear()
+            self.state.log_total = 0
             self.state.result = None
             self.state.error = None
         self.cfg.conf_threshold = float(conf)
@@ -404,6 +437,7 @@ class Api:
             """写屏幕日志与文件日志（文件失败不影响运行）"""
             with self.state.lock:
                 self.state.logs.append(msg)
+                self.state.log_total += 1
             if log_fh:
                 try:
                     log_fh.write(time.strftime("[%H:%M:%S] ") + msg + "\n")

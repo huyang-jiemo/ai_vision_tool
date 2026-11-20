@@ -17,6 +17,7 @@ import numpy as np
 
 from . import coords
 from .config import WUHAN_CGCS2000_GK_WKT
+from .imgio import read_rgb
 
 LOCAL_PROJ4 = ("+proj=tmerc +lat_0=0 +lon_0=114.3333333333333 +k=1 +x_0=800000 "
                "+y_0=-3000000 +a=6378137 +rf=298.257222101 +units=m +no_defs")
@@ -216,14 +217,16 @@ class DomExtractor:
         for iy in range(ny):
             for ix in range(nx):
                 c0, r0 = ix * self.tile, iy * self.tile
-                c1 = min(c0 + self.tile, int(win.width))
-                r1 = min(r0 + self.tile, int(win.height))
+                # 读取窗口必须真正带 overlap：否则块边界处的目标会被切断，
+                # 而下方「重叠带去重」会直接丢弃这些位置的真实要素。
+                c1 = min(c0 + self.tile + self.overlap, int(win.width))
+                r1 = min(r0 + self.tile + self.overlap, int(win.height))
                 if c1 - c0 < 64 or r1 - r0 < 64:
                     done += 1
                     continue
                 sub = Window(int(win.col_off) + c0, int(win.row_off) + r0,
                              c1 - c0, r1 - r0)
-                img = dom.read([1, 2, 3], window=sub).transpose(1, 2, 0)
+                img = read_rgb(dom, window=sub).transpose(1, 2, 0)
                 done += 1
                 if img.size == 0 or img.max() == 0:
                     continue
@@ -488,7 +491,7 @@ class DomExtractor:
         scale = win.width / OW
         OH = max(1, int(win.height / scale))
         wt = dom.window_transform(win)
-        img = dom.read([1, 2, 3], window=win, out_shape=(3, OH, OW),
+        img = read_rgb(dom, window=win, out_shape=(3, OH, OW),
                        resampling=Resampling.bilinear).transpose(1, 2, 0)
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         inv = ~wt

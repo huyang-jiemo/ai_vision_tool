@@ -21,6 +21,17 @@ except Exception:  # shapely 缺失时降级（仅 SHP 路径依赖）
     Point = LineString = None
 
 
+def _write_prj_cpg(shp_path) -> None:
+    """写投影文件与 DBF 编码声明。
+
+    pyshp 以 UTF-8 写 DBF，但不会生成 .cpg；缺少 .cpg 时 ArcGIS 会按系统
+    ANSI 代码页解释，中文属性（类别名等）可能乱码。
+    """
+    path = Path(shp_path)
+    path.with_suffix(".prj").write_text(WUHAN_CGCS2000_GK_WKT, encoding="utf-8")
+    path.with_suffix(".cpg").write_text("UTF-8", encoding="ascii")
+
+
 def export_points_shp(shp_path, features):
     import shapefile
     w = shapefile.Writer(str(shp_path), shapeType=shapefile.POINT)
@@ -35,8 +46,7 @@ def export_points_shp(shp_path, features):
         w.record(str(f.get("class_id", "")), f.get("class_cn", ""), f.get("session", ""),
                  f.get("image", ""), float(f.get("dist", 0.0)), float(f.get("score", 0.0)))
     w.close()
-    # 写 .prj
-    Path(str(shp_path).replace(".shp", ".prj")).write_text(WUHAN_CGCS2000_GK_WKT, encoding="utf-8")
+    _write_prj_cpg(shp_path)
     return shp_path
 
 
@@ -52,7 +62,7 @@ def export_lines_shp(shp_path, features):
         w.record(f.get("session", ""), f.get("image", ""), f.get("side", ""),
                  float(f.get("avg_dist", 0.0)))
     w.close()
-    Path(str(shp_path).replace(".shp", ".prj")).write_text(WUHAN_CGCS2000_GK_WKT, encoding="utf-8")
+    _write_prj_cpg(shp_path)
     return shp_path
 
 
