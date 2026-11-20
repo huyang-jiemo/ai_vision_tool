@@ -42,21 +42,81 @@ def frozen_selftest():
         return True
     if mode == "deps":
         # 验证 GIS 依赖链（pyproj → geopandas/pyogrio）在冻结环境可用：
-        # 曾因 libproj 多副本冲突导致 pyproj 加载失败、正射提取直接中断
+        # 曾因 libproj 多副本冲突导致 pyproj 加载失败、正射提取直接中断。
+        # 除 CRS 解析外，必须实际建立 Transformer（正射提取失败点就在这里）。
         try:
-            import pyproj
-            from pyproj import CRS
             import geopandas
             import pyogrio
+            from pyproj import CRS
+            from pipeline import coords
+            from pipeline.config import WUHAN_CGCS2000_GK_WKT
+            from pipeline.dom_extractor import LOCAL_PROJ4
             crs = CRS.from_epsg(3857)
             gdf = geopandas.GeoDataFrame({"a": [1]}, geometry=geopandas.points_from_xy([0], [0]),
                                          crs=crs)
             ok = gdf.crs is not None and gdf.crs.to_epsg() == 3857
+            local = CRS.from_proj4(LOCAL_PROJ4)
+            fwd = coords.build_transformer(local, crs)
+            back = coords.build_transformer(crs, local)
+            x, y = back.transform(*fwd.transform(800000.0, 385000.0))
+            ok_tf = abs(x - 800000.0) < 1e-3 and abs(y - 385000.0) < 1e-3
+            # 工具自有 WKT 与本地 TM 为同一投影：应识别为「无需转换」
+            ok_same = coords.build_transformer(
+                CRS.from_user_input(WUHAN_CGCS2000_GK_WKT), local) is None
+            ok = ok and ok_tf and ok_same
             print("DEPS_SELFTEST:", "PASS" if ok else "FAIL",
-                  f"(pyproj={pyproj.__version__}, gpd={geopandas.__version__}, "
-                  f"pyogrio={pyogrio.__version__}, crs={gdf.crs})")
+                  f"(gpd={geopandas.__version__}, pyogrio={pyogrio.__version__}, "
+                  f"转换往返={'OK' if ok_tf else 'FAIL'}, "
+                  f"同投影识别={'OK' if ok_same else 'FAIL'}, "
+                  f"{coords.runtime_info()})")
         except Exception as e:
             print("DEPS_SELFTEST: FAIL", type(e).__name__, e)
+        return True
+    if mode == "crs":
+        # 坐标系诊断（客户机器排障用）：
+        #   设置 AVT_SELFTEST=crs、AVT_SELFTEST_TIF=<正射影像或目录> 后运行程序，
+        #   结果同时写入 %LOCALAPPDATA%\AIVisionTool\坐标系诊断.txt 供回传。
+        import tempfile
+        from pyproj import CRS
+        from pipeline import coords
+        from pipeline.dom_extractor import LOCAL_PROJ4
+        lines = []
+        try:
+            import rasterio
+            lines.append(f"rasterio={rasterio.__version__} GDAL={rasterio.__gdal_version__}")
+            lines.append(coords.runtime_info())
+            src_input = os.environ.get("AVT_SELFTEST_TIF", "")
+            tif, tip = Api._resolve_dom_tif(src_input)
+            lines.append(f"影像选择：{tif or '未找到'} {tip}".rstrip())
+            if tif:
+                with rasterio.open(tif) as dom:
+                    lines.append(f"尺寸={dom.width}x{dom.height} 波段={dom.count}")
+                    lines.append(f"范围={tuple(round(v, 2) for v in dom.bounds)}")
+                    lines.append(f"坐标系={dom.crs}")
+                    src = (CRS.from_user_input(dom.crs) if dom.crs
+                           else CRS.from_epsg(3857))
+                    local = CRS.from_proj4(LOCAL_PROJ4)
+                    lines.append(f"坐标系类型={coords.describe(src)}")
+                    lines.append(f"与本地 TM 同投影={coords.same_projection(src, local)}")
+                    try:
+                        tf = coords.build_transformer(src, local)
+                        lines.append("转换=" + ("无需转换" if tf is None else "可建立"))
+                    except Exception as e:
+                        lines.append(f"转换=失败：{e}")
+                    lines.append(
+                        f"坐标范围符合本地 TM={coords.bounds_look_like_local_tm(dom.bounds)}")
+        except Exception as e:
+            lines.append(f"诊断异常：{type(e).__name__}: {e}")
+        text = "\n".join(lines)
+        print("CRS_SELFTEST:\n" + text)
+        base = os.environ.get('LOCALAPPDATA') or tempfile.gettempdir()
+        try:
+            d = os.path.join(base, 'AIVisionTool')
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, '坐标系诊断.txt'), 'w', encoding='utf-8') as f:
+                f.write(text + "\n")
+        except Exception:
+            pass
         return True
     if mode == "dom":
         # 验证正射影像（BigTIFF）读取与标线提取在打包环境下可用

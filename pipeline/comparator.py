@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import coords
 from .config import WUHAN_CGCS2000_GK_WKT
 from .dom_extractor import LOCAL_PROJ4
 
@@ -338,11 +339,20 @@ class Comparator:
 
         if dom_tif:
             dom = rasterio.open(dom_tif)
-            src_crs = CRS.from_user_input(dom.crs)
-            from pyproj import Transformer
-            fwd = Transformer.from_crs(local, src_crs, always_xy=True)
-            sx0, sy0 = fwd.transform(minx, miny)
-            sx1, sy1 = fwd.transform(maxx, maxy)
+            src_crs = CRS.from_user_input(dom.crs) if dom.crs else CRS.from_epsg(3857)
+            # 同投影 / 本地坐标系（坐标范围与武汉本地 TM 吻合）时不转换；
+            # 否则建立本地 TM → 影像坐标系的转换（用于裁窗与叠加）。
+            try:
+                to_src = coords.build_transformer(local, src_crs)
+            except ValueError:
+                if not coords.bounds_look_like_local_tm(dom.bounds):
+                    raise
+                to_src = None
+            if to_src is not None:
+                sx0, sy0 = to_src.transform(minx, miny)
+                sx1, sy1 = to_src.transform(maxx, maxy)
+            else:
+                sx0, sy0, sx1, sy1 = minx, miny, maxx, maxy
             win = from_bounds(min(sx0, sx1), min(sy0, sy1), max(sx0, sx1), max(sy0, sy1),
                               dom.transform).round_offsets().round_lengths()
             OW = 1800
@@ -353,10 +363,10 @@ class Comparator:
                            resampling=Resampling.bilinear).transpose(1, 2, 0)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             inv = ~wt
-            back = Transformer.from_crs(local, src_crs, always_xy=True)
 
             def w2p(x, y):
-                x, y = back.transform(x, y)
+                if to_src is not None:
+                    x, y = to_src.transform(x, y)
                 c, r = inv * (x, y)
                 return c / scale, r / scale
         else:

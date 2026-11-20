@@ -15,6 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from . import coords
 from .config import WUHAN_CGCS2000_GK_WKT
 
 LOCAL_PROJ4 = ("+proj=tmerc +lat_0=0 +lon_0=114.3333333333333 +k=1 +x_0=800000 "
@@ -114,17 +115,45 @@ class DomExtractor:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         dom = rasterio.open(tif_path)
-        src_crs = CRS.from_user_input(dom.crs) if dom.crs else CRS.from_epsg(3857)
+        try:
+            src_crs = CRS.from_user_input(dom.crs) if dom.crs else CRS.from_epsg(3857)
+        except Exception as e:
+            raise RuntimeError(
+                f"无法解析影像坐标系（{dom.crs}）：{e}\n"
+                f"请在 ArcGIS Pro 中为该影像定义正确的坐标系后重试。") from e
         local = CRS.from_proj4(LOCAL_PROJ4)
+        wlog(f"影像坐标系：{coords.describe(src_crs)}")
+        wlog(f"影像范围：{tuple(round(v, 1) for v in dom.bounds)}")
+
+        # 坐标转换：同投影直接跳过（WKT 与 Proj4 的 datum 名称差异会让
+        # CRS.equals() 误判）；本地/未定义坐标系无法转换时，若坐标范围与武汉
+        # 本地 TM 吻合则按源坐标处理，否则给出可执行的错误提示。
         to_local = None
-        if not src_crs.equals(local):
-            from pyproj import Transformer
-            to_local = Transformer.from_crs(src_crs, local, always_xy=True)
+        same_frame = False
+        assumed_local = False
+        try:
+            to_local = coords.build_transformer(src_crs, local)
+            same_frame = to_local is None
+            if same_frame:
+                wlog("影像坐标系与武汉本地 TM 一致，跳过坐标转换")
+        except ValueError as exc:
+            if coords.bounds_look_like_local_tm(dom.bounds):
+                same_frame = assumed_local = True
+                wlog(f"警告：{exc}")
+                wlog("影像坐标范围与武汉本地 TM 吻合，按源坐标直接处理（不做转换）")
+            else:
+                raise RuntimeError(
+                    f"{exc}\n"
+                    f"正射提取要求影像带有效坐标系（如 CGCS2000 3 度带 114E、"
+                    f"武汉本地 TM 或 EPSG:3857）。当前影像坐标系为"
+                    f"「{coords.describe(src_crs)}」，无法转换到武汉本地 TM，"
+                    f"请在 ArcGIS Pro 中为其定义正确坐标系后重试。\n"
+                    f"运行环境：{coords.runtime_info()}") from exc
 
         # 处理范围：默认全图；给定存量 GDB 时按其范围 + pad 裁剪（实用场景：图幅更新）
         if stock_gdb and Path(stock_gdb).exists():
             try:
-                b = self._stock_bounds(stock_gdb, src_crs)
+                b = self._stock_bounds(stock_gdb, None if same_frame else src_crs)
                 win = from_bounds(b[0] - pad_m, b[1] - pad_m, b[2] + pad_m, b[3] + pad_m,
                                   dom.transform)
                 win = win.intersection(rasterio.windows.Window(0, 0, dom.width, dom.height))
@@ -322,6 +351,8 @@ class DomExtractor:
         report = {
             "tif": str(tif_path),
             "crs": str(dom.crs),
+            # 影像坐标系为本地/未定义坐标系且无法转换时，按源坐标直接处理
+            "crs_assumed_local": assumed_local,
             "window_px": [int(win.width), int(win.height)],
             "res_m": round(res_m, 4),
             "lines": len(lines),
@@ -340,7 +371,8 @@ class DomExtractor:
         return report
 
     # ---------- 工具 ----------
-    def _stock_bounds(self, stock_gdb, src_crs):
+    def _stock_bounds(self, stock_gdb, src_crs=None):
+        """存量 GDB 范围（单位为影像坐标系）。src_crs 为 None 表示影像即本地 TM。"""
         import geopandas as gpd
         import pyogrio
         from pyproj import CRS
@@ -355,7 +387,9 @@ class DomExtractor:
                 continue
             if g.empty:
                 continue
-            g = g.set_crs(local, allow_override=True).to_crs(src_crs)
+            g = g.set_crs(local, allow_override=True)
+            if src_crs is not None:
+                g = g.to_crs(src_crs)
             bs.append(g.total_bounds)
         if not bs:
             raise RuntimeError("存量 GDB 无有效图层")

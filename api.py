@@ -230,6 +230,7 @@ class Api:
                                     f"走廊约束: {use_corridor}"
                                     + (f"\n{note}" if note else ""))
         wlog = self._wlog(st, log_fh)
+        wlog(f"影像：{tif_path}")
         if note:
             wlog(note)
 
