@@ -47,6 +47,25 @@ jobs:
         run: python models/download_models.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
+      # 先单独验证 onedir 主程序本身能启动并完成自检（不含打包链路），
+      # 自检模式不初始化 WebView2，因此可以放在运行时拷入之前。
+      - name: Smoke test onedir app
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:LOCALAPPDATA 'AIVisionTool'
+          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+          Start-Process -FilePath 'dist/AIVisionTool/AIVisionTool.exe' -ArgumentList '--selftest=crs'
+          $diag = Join-Path $root '坐标系诊断.txt'
+          $deadline = (Get-Date).AddMinutes(2)
+          while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          if (-not (Test-Path $diag)) {
+            $marker = Join-Path $root '启动标记.txt'
+            if (Test-Path $marker) { Get-Content $marker }
+            throw 'onedir 主程序自检失败：未生成坐标系诊断.txt'
+          }
+          Get-Content $diag
       # 无网交付：把 WebView2 固定版运行时（可再分发）直接打进包里，
       # 用户解压即可运行——零安装、零下载、无需管理员权限。
       # 构建期用官方独立安装器静默安装到 runner，再把运行时目录拷入包中。
@@ -120,16 +139,17 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $root = Join-Path $env:LOCALAPPDATA 'AIVisionTool'
           if (Test-Path $root) { Remove-Item $root -Recurse -Force }
-          $env:AVT_SELFTEST = 'crs'
-          Start-Process -FilePath 'dist_single/AIVisionTool-Windows-x64.exe'
+          Start-Process -FilePath 'dist_single/AIVisionTool-Windows-x64.exe' -ArgumentList '--selftest=crs'
           $diag = Join-Path $root '坐标系诊断.txt'
           $deadline = (Get-Date).AddMinutes(6)
           while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 2
           }
           if (-not (Test-Path $diag)) {
-            $log = Join-Path $root '启动器日志.log'
-            if (Test-Path $log) { Get-Content $log }
+            foreach ($f in '启动标记.txt', '启动器日志.log') {
+              $p = Join-Path $root $f
+              if (Test-Path $p) { Get-Content $p }
+            }
             throw '冒烟失败：主程序未生成坐标系诊断.txt'
           }
           Get-Content $diag

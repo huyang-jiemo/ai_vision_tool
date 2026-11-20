@@ -1,6 +1,7 @@
 """pywebview 桌面入口：双击打开即用，零终端依赖（打包后）。"""
 import os
 import sys
+import time
 
 import webview
 
@@ -12,11 +13,40 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 
+def _selftest_mode() -> str:
+    """自检模式：环境变量 AVT_SELFTEST 或命令行 --selftest=<mode>。
+
+    命令行参数用于启动器/CI：不依赖环境变量是否被正确继承。
+    """
+    mode = os.environ.get("AVT_SELFTEST", "").strip()
+    if mode:
+        return mode
+    for arg in sys.argv[1:]:
+        if arg.startswith("--selftest="):
+            return arg.split("=", 1)[1].strip()
+    return ""
+
+
+def _write_boot_marker(mode: str) -> None:
+    """自检时先落一个标记：区分「程序没启动到 main」和「自检逻辑失败」。"""
+    import tempfile
+    try:
+        base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+        d = os.path.join(base, "AIVisionTool")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "启动标记.txt"), "w", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()} "
+                    f"mode={mode} argv={sys.argv[1:]!r}\n")
+    except Exception:
+        pass
+
+
 def frozen_selftest():
     """冻结环境自检（发布验证用，正常用户不触发）：
-    AVT_SELFTEST=gdb 验证 GDB 导出依赖；=rasterio 验证正射影像读取依赖；
-    =dom 验证标线提取；=deps 验证 pyproj/geopandas/pyogrio 依赖链。"""
-    mode = os.environ.get("AVT_SELFTEST", "")
+    AVT_SELFTEST=gdb 或 --selftest=gdb 验证 GDB 导出依赖；
+    =rasterio 验证正射影像读取依赖；=dom 验证标线提取；
+    =deps 验证 pyproj/geopandas/pyogrio 依赖链；=crs 输出坐标系诊断。"""
+    mode = _selftest_mode()
     if mode == "gdb":
         import tempfile
         from pipeline.exporter import export_points_gdb
@@ -263,7 +293,12 @@ def dump_startup_error():
 
 
 def main():
-    windows_runtime_setup()
+    mode = _selftest_mode()
+    if mode:
+        # 自检不需要 WebView2，也不应因缺少运行时而弹框阻塞（CI/排障场景）
+        _write_boot_marker(mode)
+    else:
+        windows_runtime_setup()
     if frozen_selftest():
         return
     api = Api()
