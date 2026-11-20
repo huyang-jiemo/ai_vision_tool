@@ -67,8 +67,15 @@ jobs:
           if (Test-Path $root) { Remove-Item $root -Recurse -Force }
           Start-Process -FilePath 'dist/AIVisionTool/AIVisionTool.exe' -ArgumentList '--selftest=crs'
           $diag = Join-Path $root '坐标系诊断.txt'
-          $deadline = (Get-Date).AddMinutes(2)
-          while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          # 诊断文件是分阶段写的（stage=start/pyproj/pipeline/done），
+          # 只等文件出现会在第一步就误判失败，必须等 stage=done。
+          # 首次运行 Windows Defender 会扫描 GDAL/PROJ 大体积 DLL，留足 4 分钟。
+          $deadline = (Get-Date).AddMinutes(4)
+          while ((Get-Date) -lt $deadline) {
+            if ((Test-Path $diag) -and
+                (Select-String -Path $diag -Pattern 'stage=done' -SimpleMatch -Quiet)) { break }
+            Start-Sleep -Seconds 1
+          }
           $done = (Test-Path $diag) -and
             (Select-String -Path $diag -Pattern 'stage=done' -SimpleMatch -Quiet)
           if (-not $done) {
@@ -155,7 +162,9 @@ jobs:
           Start-Process -FilePath 'dist_single/AIVisionTool-Windows-x64.exe' -ArgumentList '--selftest=crs'
           $diag = Join-Path $root '坐标系诊断.txt'
           $deadline = (Get-Date).AddMinutes(6)
-          while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) {
+          while ((Get-Date) -lt $deadline) {
+            if ((Test-Path $diag) -and
+                (Select-String -Path $diag -Pattern 'stage=done' -SimpleMatch -Quiet)) { break }
             Start-Sleep -Seconds 2
           }
           $done = (Test-Path $diag) -and
