@@ -4,4 +4,7 @@ torch
 torchvision
 onnx
 onnxsim
-pyinstaller
+# 固定版本：单文件启动器依赖 6.x 引导程序“从文件末尾向前搜索 CArchive cookie”
+# 的行为（payload 追加在 exe 末尾）。升级前请先用 tools/make_single_exe.py
+# 构建并实际运行一次产物。
+pyinstaller==6.22.3

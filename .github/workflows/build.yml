@@ -103,13 +103,28 @@ jobs:
           $rt = Get-ChildItem dist/AIVisionTool/webview2-runtime -Recurse |
             Measure-Object -Property Length -Sum
           Write-Host "runtime files: $($rt.Count), $([int]($rt.Sum / 1MB)) MB"
-      - name: Package .exe
-        run: Compress-Archive -Path dist/AIVisionTool -DestinationPath AIVisionTool-Windows-x64.zip
+      # 单文件交付：十几 MB 的 onefile 启动器 + 追加在末尾的 payload.zip。
+      # 首次启动解压到 %LOCALAPPDATA%\AIVisionTool\app\<版本>-<摘要>，之后秒开；
+      # 不产生需要解压一大堆文件的 zip，目标机也无需安装任何环境。
+      - name: Build single-file exe
+        run: |
+          python tools/make_payload.py
+          pyinstaller build_launcher.spec --noconfirm --distpath dist_single --workpath build_launcher
+          python tools/make_single_exe.py
+      - name: Write SHA256SUMS
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist_single/AIVisionTool-Windows-x64.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  AIVisionTool-Windows-x64.exe" | Set-Content dist_single/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist_single/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: Windows-x64
-          path: AIVisionTool-Windows-x64.zip
-          retention-days: 7   # 自动过期，避免长期占用账号 500MB 制品配额
+          path: |
+            dist_single/AIVisionTool-Windows-x64.exe
+            dist_single/SHA256SUMS.txt
+          compression-level: 0   # 内容已压缩（payload 为 deflate），再压无收益
+          retention-days: 7      # 自动过期，避免长期占用账号制品配额
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -125,4 +140,5 @@ jobs:
         with:
           files: |
             AIVisionTool-macOS-arm64.zip
-            AIVisionTool-Windows-x64.zip
+            AIVisionTool-Windows-x64.exe
+            SHA256SUMS.txt

@@ -215,10 +215,16 @@ def windows_runtime_setup():
     if sys.platform != 'win32':
         return
     if getattr(sys, 'frozen', False):
-        bundled = os.path.join(os.path.dirname(sys.executable), 'webview2-runtime')
-        if os.path.isfile(os.path.join(bundled, 'msedgewebview2.exe')):
-            webview.settings['WEBVIEW2_RUNTIME_PATH'] = bundled   # 固定版随包运行时
-            return
+        # onedir：运行时在 exe 同目录；onefile：在 _MEIPASS 临时目录
+        candidates = [os.path.join(os.path.dirname(sys.executable),
+                                   'webview2-runtime')]
+        meipass = getattr(sys, '_MEIPASS', '')
+        if meipass:
+            candidates.insert(0, os.path.join(meipass, 'webview2-runtime'))
+        for bundled in candidates:
+            if os.path.isfile(os.path.join(bundled, 'msedgewebview2.exe')):
+                webview.settings['WEBVIEW2_RUNTIME_PATH'] = bundled   # 固定版随包运行时
+                return
     ok, missing = _win_runtime_ok()
     if ok:
         return
