@@ -111,6 +111,29 @@ jobs:
           python tools/make_payload.py
           pyinstaller build_launcher.spec --noconfirm --distpath dist_single --workpath build_launcher
           python tools/make_single_exe.py
+      # 端到端冒烟：真正运行最终 exe，验证「定位追加 payload → 解压 → 启动
+      # 内层程序」。AVT_SELFTEST=crs 让主程序写完诊断文件后直接退出，无需窗口。
+      - name: Smoke test single-file exe
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:LOCALAPPDATA 'AIVisionTool'
+          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+          $env:AVT_SELFTEST = 'crs'
+          Start-Process -FilePath 'dist_single/AIVisionTool-Windows-x64.exe'
+          $diag = Join-Path $root '坐标系诊断.txt'
+          $deadline = (Get-Date).AddMinutes(6)
+          while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+          }
+          if (-not (Test-Path $diag)) {
+            $log = Join-Path $root '启动器日志.log'
+            if (Test-Path $log) { Get-Content $log }
+            throw '冒烟失败：主程序未生成坐标系诊断.txt'
+          }
+          Get-Content $diag
+          Get-Content (Join-Path $root '启动器日志.log')
       - name: Write SHA256SUMS
         shell: pwsh
         run: |
