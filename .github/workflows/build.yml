@@ -23,6 +23,15 @@ jobs:
         run: python models/download_models.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
+      - name: Smoke test onedir app
+        run: |
+          export LOCALAPPDATA="$RUNNER_TEMP/avt_selftest"
+          rm -rf "$LOCALAPPDATA"
+          dist/AIVisionTool/AIVisionTool --selftest=crs
+          diag="$LOCALAPPDATA/AIVisionTool/坐标系诊断.txt"
+          test -f "$diag"
+          cat "$diag"
+          grep -q 'stage=done' "$diag"
       - name: Package .app
         run: ditto -c -k --sequesterRsrc dist/AIVisionTool.app AIVisionTool-macOS-arm64.zip
       - uses: actions/upload-artifact@v4
@@ -60,10 +69,14 @@ jobs:
           $diag = Join-Path $root '坐标系诊断.txt'
           $deadline = (Get-Date).AddMinutes(2)
           while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
-          if (-not (Test-Path $diag)) {
-            $marker = Join-Path $root '启动标记.txt'
-            if (Test-Path $marker) { Get-Content $marker }
-            throw 'onedir 主程序自检失败：未生成坐标系诊断.txt'
+          $done = (Test-Path $diag) -and
+            (Select-String -Path $diag -Pattern 'stage=done' -SimpleMatch -Quiet)
+          if (-not $done) {
+            foreach ($f in '启动标记.txt', '自检错误.txt', '坐标系诊断.txt') {
+              $p = Join-Path $root $f
+              if (Test-Path $p) { Get-Content $p }
+            }
+            throw 'onedir 主程序自检未完成（见上方 stage/错误信息）'
           }
           Get-Content $diag
       # 无网交付：把 WebView2 固定版运行时（可再分发）直接打进包里，
@@ -145,12 +158,14 @@ jobs:
           while (-not (Test-Path $diag) -and (Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 2
           }
-          if (-not (Test-Path $diag)) {
-            foreach ($f in '启动标记.txt', '启动器日志.log') {
+          $done = (Test-Path $diag) -and
+            (Select-String -Path $diag -Pattern 'stage=done' -SimpleMatch -Quiet)
+          if (-not $done) {
+            foreach ($f in '启动标记.txt', '自检错误.txt', '坐标系诊断.txt', '启动器日志.log') {
               $p = Join-Path $root $f
               if (Test-Path $p) { Get-Content $p }
             }
-            throw '冒烟失败：主程序未生成坐标系诊断.txt'
+            throw '冒烟失败：主程序自检未完成（见上方 stage/错误信息）'
           }
           Get-Content $diag
           Get-Content (Join-Path $root '启动器日志.log')

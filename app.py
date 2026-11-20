@@ -47,6 +47,31 @@ def frozen_selftest():
     =rasterio 验证正射影像读取依赖；=dom 验证标线提取；
     =deps 验证 pyproj/geopandas/pyogrio 依赖链；=crs 输出坐标系诊断。"""
     mode = _selftest_mode()
+    if not mode:
+        return False
+    try:
+        return _run_selftest(mode)
+    except Exception:
+        # windowed 程序里异常会弹窗阻塞，CI/客户排障都看不到；
+        # 统一落盘 traceback 后正常退出
+        import traceback
+        _write_selftest_error(mode, traceback.format_exc())
+        return True
+
+
+def _write_selftest_error(mode: str, tb: str) -> None:
+    import tempfile
+    try:
+        base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+        d = os.path.join(base, "AIVisionTool")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "自检错误.txt"), "w", encoding="utf-8") as f:
+            f.write(f"mode={mode}\n{tb}\n")
+    except Exception:
+        pass
+
+
+def _run_selftest(mode: str):
     if mode == "gdb":
         import tempfile
         from pipeline.exporter import export_points_gdb
@@ -107,14 +132,35 @@ def frozen_selftest():
         #   设置 AVT_SELFTEST=crs、AVT_SELFTEST_TIF=<正射影像或目录> 后运行程序，
         #   结果同时写入 %LOCALAPPDATA%\AIVisionTool\坐标系诊断.txt 供回传。
         import tempfile
-        from pyproj import CRS
-        from pipeline import coords
-        from pipeline.dom_extractor import LOCAL_PROJ4
+
+        base = os.environ.get('LOCALAPPDATA') or tempfile.gettempdir()
+        diag_dir = os.path.join(base, 'AIVisionTool')
+        diag_path = os.path.join(diag_dir, '坐标系诊断.txt')
         lines = []
+
+        def flush():
+            # 每步立即落盘：即使后续导入崩溃/卡住，也能看到最后一步
+            try:
+                os.makedirs(diag_dir, exist_ok=True)
+                with open(diag_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(lines) + "\n")
+            except Exception:
+                pass
+
         try:
+            lines.append("stage=start")
+            flush()
+            from pyproj import CRS
+            lines.append("stage=pyproj ok")
+            flush()
+            from pipeline import coords
+            from pipeline.dom_extractor import LOCAL_PROJ4
+            lines.append("stage=pipeline ok")
+            flush()
             import rasterio
             lines.append(f"rasterio={rasterio.__version__} GDAL={rasterio.__gdal_version__}")
             lines.append(coords.runtime_info())
+            flush()
             src_input = os.environ.get("AVT_SELFTEST_TIF", "")
             tif, tip = Api._resolve_dom_tif(src_input)
             lines.append(f"影像选择：{tif or '未找到'} {tip}".rstrip())
@@ -135,18 +181,14 @@ def frozen_selftest():
                         lines.append(f"转换=失败：{e}")
                     lines.append(
                         f"坐标范围符合本地 TM={coords.bounds_look_like_local_tm(dom.bounds)}")
+            lines.append("stage=done")
         except Exception as e:
+            import traceback
             lines.append(f"诊断异常：{type(e).__name__}: {e}")
+            lines.append(traceback.format_exc())
         text = "\n".join(lines)
         print("CRS_SELFTEST:\n" + text)
-        base = os.environ.get('LOCALAPPDATA') or tempfile.gettempdir()
-        try:
-            d = os.path.join(base, 'AIVisionTool')
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, '坐标系诊断.txt'), 'w', encoding='utf-8') as f:
-                f.write(text + "\n")
-        except Exception:
-            pass
+        flush()
         return True
     if mode == "dom":
         # 验证正射影像（BigTIFF）读取与标线提取在打包环境下可用
