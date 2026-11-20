@@ -13,6 +13,16 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 
+def _utf8_stdio() -> None:
+    """冻结的 windowed 程序 stdout 可能是 cp1252/cp936，打印中文会
+    UnicodeEncodeError；统一改为 UTF-8，编码不了的字符替换而不是抛异常。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _selftest_mode() -> str:
     """自检模式：环境变量 AVT_SELFTEST 或命令行 --selftest=<mode>。
 
@@ -187,8 +197,12 @@ def _run_selftest(mode: str):
             lines.append(f"诊断异常：{type(e).__name__}: {e}")
             lines.append(traceback.format_exc())
         text = "\n".join(lines)
-        print("CRS_SELFTEST:\n" + text)
+        # 先落盘再打印：打印失败（编码/无控制台）不应影响诊断结果
         flush()
+        try:
+            print("CRS_SELFTEST:\n" + text)
+        except Exception:
+            pass
         return True
     if mode == "dom":
         # 验证正射影像（BigTIFF）读取与标线提取在打包环境下可用
@@ -335,6 +349,7 @@ def dump_startup_error():
 
 
 def main():
+    _utf8_stdio()
     mode = _selftest_mode()
     if mode:
         # 自检不需要 WebView2，也不应因缺少运行时而弹框阻塞（CI/排障场景）
