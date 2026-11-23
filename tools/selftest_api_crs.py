@@ -121,6 +121,19 @@ def test_dom_invalid_and_missing_stock() -> list[bool]:
                str(r2.get("error_code"))),
         _check("字段定位到 stock_gdb", r2.get("crs_field") == "stock_gdb"),
     ]
+    # 选了项目根目录而不是 .gdb 文件夹：应快速给出可操作的错误
+    plain = os.path.join(tmp, "项目根")
+    os.makedirs(plain, exist_ok=True)
+    r3 = api.start_dom(tif, out, stock_gdb=plain)
+    results += [
+        _check("存量路径是普通目录 → CRS_INVALID",
+               r3.get("started") is False
+               and r3.get("error_code") == "CRS_INVALID"
+               and "不是 GDB 目录" in (r3.get("error") or ""),
+               str(r3.get("error_code"))),
+        _check("普通目录错误定位到 stock_gdb",
+               r3.get("crs_field") == "stock_gdb"),
+    ]
     return results
 
 

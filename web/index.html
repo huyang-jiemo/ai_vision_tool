@@ -29,7 +29,7 @@
     </svg>
     <div class="brand__tt">
       <span class="brand__name">众源感知提取工具</span>
-      <span class="brand__ver">v0.6.1</span>
+      <span class="brand__ver">v0.6.2</span>
     </div>
     <div class="rail__sep" aria-hidden="true"></div>
   </div>
@@ -74,9 +74,6 @@
     </header>
 
     <section class="card">
-      <div class="card-head">
-        <div class="card-head__tt"><span class="card-head__t1">提取配置</span></div>
-      </div>
       <div class="cfg-grid">
         <div class="field field--path">
           <label class="field__lb" for="dataDir">数据源目录</label>
@@ -240,9 +237,6 @@
     </header>
 
     <section class="card">
-      <div class="card-head">
-        <div class="card-head__tt"><span class="card-head__t1">提取配置</span></div>
-      </div>
       <div class="cfg-grid">
         <div class="field field--path">
           <label class="field__lb" for="domTif">正射影像目录</label>
@@ -299,7 +293,7 @@
       </div>
       <div class="switches">
         <label class="switch"><input type="checkbox" id="domClip" checked /><span class="switch__track"></span>按存量范围裁剪</label>
-        <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="switch__track"></span>仅提取存量道路走廊（±8m，建筑不提取）</label>
+        <label class="switch"><input type="checkbox" id="domCorridor" checked /><span class="switch__track"></span>仅保留道路走廊（±8m）</label>
       </div>
     </section>
 
@@ -376,9 +370,6 @@
     </header>
 
     <section class="card">
-      <div class="card-head">
-        <div class="card-head__tt"><span class="card-head__t1">比对设置</span></div>
-      </div>
       <div class="cfg-grid">
         <div class="field field--path">
           <label class="field__lb" for="cmpNew">新成果 GDB</label>

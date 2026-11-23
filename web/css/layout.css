@@ -12,21 +12,21 @@
   width: var(--rail-w); flex: 0 0 var(--rail-w);
   background: var(--rail-bg); color: var(--rail-fg);
   display: flex; flex-direction: column;
-  padding: 14px 12px 12px;
+  padding: 10px 8px;
   z-index: var(--z-rail);
 }
 
-.brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 12px; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
 /* 品牌区与导航列表之间的虚分割线 */
 .rail__sep {
-  height: 0; margin: 0 8px 14px;
+  height: 0; margin: 0 6px 10px;
   border-top: 1px dashed rgba(255,255,255,.14);
 }
-.brand__logo { width: 38px; height: 38px; border-radius: 10px; display: block; }
-.brand__tt { display: flex; flex-direction: column; gap: 2px; line-height: 1.3; min-width: 0; }
+.brand__logo { width: 32px; height: 32px; border-radius: 9px; display: block; }
+.brand__tt { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; min-width: 0; }
 .brand__name {
-  font-size: 14px; font-weight: var(--fw-b); color: var(--rail-fg-strong);
-  letter-spacing: var(--ls-label); white-space: nowrap;
+  font-size: 12.5px; font-weight: var(--fw-b); color: var(--rail-fg-strong);
+  letter-spacing: 0; white-space: nowrap;
 }
 /* 版本号：标题下一行，独立展示 */
 .brand__ver {
@@ -38,13 +38,13 @@
 .nav { display: flex; flex-direction: column; gap: var(--sp-1); }
 
 .nav__i {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
   background: transparent; color: var(--rail-fg);
-  height: 34px; padding: 0 10px; border-radius: var(--r-md);
+  height: 30px; padding: 0 8px; border-radius: var(--r-md);
   transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .nav__i:hover { background: var(--rail-hover); color: #E8EEF7; }
-.nav__i.is-on { background: var(--rail-active); color: #fff; height: 44px; }
+.nav__i.is-on { background: var(--rail-active); color: #fff; height: 38px; }
 /* 深色轨上的焦点环：先描底色再描主题色，保证在深色背景上可见 */
 .nav__i:focus-visible { box-shadow: 0 0 0 2px var(--rail-bg), 0 0 0 4px var(--ac); }
 
@@ -52,22 +52,22 @@
 
 /* 激活项图标：导航区唯一实色块，去阴影 */
 .nav__ic {
-  width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
+  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,.08);
   transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
-.nav__ic svg { width: 14px; height: 14px; }
+.nav__ic svg { width: 13px; height: 13px; }
 .nav__t1 { font-size: var(--fs-nav); font-weight: var(--fw-sb); line-height: 1.3; }
 .nav__i.is-on .nav__ic { background: var(--ac); color: #fff; }
 
 .rail__spacer { flex: 1 1 auto; }
 
 .model {
-  margin: 10px var(--sp-1) 0; padding: 11px var(--sp-3); border-radius: var(--r-md);
+  margin: 8px 2px 0; padding: 8px 10px; border-radius: var(--r-md);
   background: rgba(255,255,255,.05); border: 1px solid var(--rail-line);
-  display: flex; align-items: center; gap: 9px;
-  font-size: var(--fs-base); color: #9FB0C8;
+  display: flex; align-items: center; gap: 7px;
+  font-size: var(--fs-sm); color: #9FB0C8;
 }
 /* 模型状态指示灯：保留发光绿点 */
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-4); flex-shrink: 0; }
@@ -83,21 +83,22 @@ main {
   flex: 1 1 auto; min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
   overflow: hidden;               /* 整页不滚动：滚动交给页内文件列表/日志/表格 */
-  padding: 12px 18px 12px;
+  padding: 8px 12px;
 }
 
 .page {
-  max-width: var(--content-max); margin: 0 auto; width: 100%;
+  /* 桌面端铺满可用宽度：全屏/大屏时不再固定 1280px 居中留白 */
+  width: 100%;
   flex: 1 1 auto; min-height: 0;
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 
 /* ============================================================
    页头
    ============================================================ */
 .page-head {
-  display: flex; align-items: flex-start; flex-wrap: wrap;
-  gap: var(--sp-3); padding: 2px 2px 0;
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--sp-2); padding: 0 2px;
 }
 /* 全页唯一实色块：无阴影、无光晕 */
 .ph-ic {
@@ -115,19 +116,19 @@ main {
 
 /* ── 三步流程指示（右对齐） ── */
 .steps {
-  display: flex; align-items: center; gap: var(--sp-1h);
-  margin-left: auto; padding-top: 2px; flex-shrink: 0;
+  display: flex; align-items: center; gap: var(--sp-1);
+  margin-left: auto; flex-shrink: 0;
 }
 .step {
-  display: inline-flex; align-items: center; gap: var(--sp-1h);
-  height: 26px; padding: 0 var(--sp-2) 0 var(--sp-1h);
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  height: 22px; padding: 0 var(--sp-2) 0 3px;
   border-radius: var(--r-pill); font-size: var(--fs-sm); line-height: 1;
   background: var(--bg-sunken); border: 1px solid var(--line-2); color: var(--ink-3);
   white-space: nowrap;
   transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .step__n {
-  width: 17px; height: 17px; border-radius: var(--r-pill); flex-shrink: 0;
+  width: 15px; height: 15px; border-radius: var(--r-pill); flex-shrink: 0;
   background: #fff; border: 1px solid var(--line-2); color: var(--ink-3);
   display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--fs-xs); font-weight: var(--fw-sb); font-variant-numeric: tabular-nums;
@@ -156,10 +157,11 @@ main {
 .grid2 {
   flex: 1 1 auto; min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 10px; align-items: stretch;
+  /* 结果列略宽：预览图随宽度同比增高 */
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 8px; align-items: stretch;
 }
-.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+.col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 
 /* 可拉伸卡片：撑满所在列剩余高度（日志卡在上方按 data-order 固定） */
 .card--fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -169,13 +171,13 @@ main {
    A 宽屏 ≥1440 / B 标准 1184–1439 / C 紧凑 1080–1183
    ============================================================ */
 @media (min-width: 1440px) {
-  :root { --content-max: 1280px; --content-pad: 28px; }
+  :root { --content-pad: 28px; }
 }
 
 /* C 档：保持双栏与整页不滚动，仅收紧留白并隐藏表格次要列 */
 @media (max-width: 1183px) {
-  :root { --content-pad: 14px; --content-max: none; }
-  main { padding: 12px 14px 12px; }
+  :root { --content-pad: 14px; }
+  main { padding: 8px 10px; }
   /* 表格隐藏次要列 */
   .col-opt { display: none; }
 }

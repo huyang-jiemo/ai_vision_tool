@@ -129,7 +129,7 @@
 .card--fill .tbl-wrap { flex: 0 1 auto; max-height: 240px; min-height: 0; overflow: auto; margin-top: 10px; }
 /* 结果预览：可缩放容器吸收结果卡剩余高度，图片默认宽度铺满 */
 .card--fill .result-body .prev-wrap {
-  flex: 1 1 auto; min-height: 160px; box-sizing: border-box;
+  flex: 1 1 auto; min-height: clamp(200px, 34vh, 520px); box-sizing: border-box;
 }
 
 /* ============================================================

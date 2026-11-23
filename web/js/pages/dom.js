@@ -27,7 +27,7 @@
 
   var log = null, syncReady = null;
   var runStartTs = 0, pollTimer = null;
-  var finished = false, lastDomResult = null;
+  var finished = false, lastDomResult = null, starting = false;
 
   /* ─────────── 结果 ─────────── */
   function statHtml(k, v) {
@@ -89,12 +89,14 @@
       domPrevSeq++;   /* 让上一轮尚未返回的预览图失效 */
       U.setChip(el('domChip'), CHIP, 'fail');
       U.setPath('domResPath', '');
+      el('domRunBtn').disabled = false;   /* 失败后可修改参数重试 */
       var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
       el('domResult').innerHTML = errHtml('失败：' + msg);
     } else if (s.state === 'done') {
       finished = true;
       lastDomResult = s.result || null;
       U.setChip(el('domChip'), CHIP, 'done');
+      el('domRunBtn').disabled = false;   /* 完成后允许再次提取 */
       if (s.result) showDomResult(s.result);
     } else if (s.state === 'running') {
       finished = false;
@@ -134,9 +136,18 @@
 
   /* ─────────── 启动 ─────────── */
   function run() {
+    if (starting) return;   /* 防止预检期间重复点击 */
     var tif = el('domTif').value.trim(), out = el('domOut').value.trim();
     if (!tif) { U.toast('请选择正射影像目录', 'err'); return; }
     if (!out) { U.toast('请选择输出目录', 'err'); return; }
+    /* 预检可能耗时（读取影像/矢量元数据），先给出明确的“正在启动”反馈 */
+    starting = true;
+    var btn = el('domRunBtn'), label = btn.innerHTML;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '正在启动…';
+    U.setChip(el('domChip'), CHIP, 'run');
+    el('domResult').innerHTML = U.emptyHtml(EMPTY_ICON, '正在检查输入与坐标系…');
     U.clearCrsErrors(CRS_MAP);
     A.call('start_dom', tif, out, el('domStock').value.trim() || null,
       parseFloat(el('domMinLen').value) || 2.0,
@@ -145,7 +156,11 @@
       el('domStockCrs').value.trim() || null,
       el('domOutCrs').value.trim() || null)
       .then(function (r) {
+        starting = false;
+        btn.innerHTML = label;
+        btn.removeAttribute('aria-busy');
         if (!r || !r.started) {
+          syncReady();   /* 按字段内容恢复按钮可用态 */
           var msg = U.applyCrsError(r || {}, CRS_MAP) || '启动失败';
           el('domResult').innerHTML = errHtml(msg);
           U.toast((r && r.error) || '启动失败', 'err');
@@ -154,11 +169,17 @@
         runStartTs = Date.now();
         finished = false;
         U.setChip(el('domChip'), CHIP, 'run');
-        el('domRunBtn').disabled = true;
+        btn.disabled = true;   /* 运行中保持禁用 */
         syncSteps();
         poll();
       })
-      .catch(function (e) { U.toast('启动失败：' + e, 'err'); });
+      .catch(function (e) {
+        starting = false;
+        btn.innerHTML = label;
+        btn.removeAttribute('aria-busy');
+        syncReady();
+        U.toast('启动失败：' + e, 'err');
+      });
   }
 
   /* ─────────── 初始化 ─────────── */

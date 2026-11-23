@@ -26,7 +26,7 @@
   }
 
   var log = null, syncReady = null, pollTimer = null;
-  var lastCmpOut = '', finished = false;
+  var lastCmpOut = '', finished = false, starting = false;
 
   /* ─────────── 结果 ─────────── */
   function statHtml(tone, k, v) {
@@ -97,12 +97,14 @@
       cmpPrevSeq++;   /* 让上一轮尚未返回的预览图失效 */
       U.setChip(el('cmpChip'), CHIP, 'fail');
       U.setPath('cmpResPath', '');
+      el('cmpRunBtn').disabled = false;
       var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
       el('cmpResult').innerHTML = errHtml('失败：' + msg);
       el('cmpPrev').innerHTML = U.emptyHtml(EMPTY_ICON, '比对失败，无预览图');
     } else if (s.state === 'done') {
       finished = true;
       U.setChip(el('cmpChip'), CHIP, 'done');
+      el('cmpRunBtn').disabled = false;
       if (s.result) showCmpResult(s.result);
     } else if (s.state === 'running') {
       finished = false;
@@ -143,9 +145,17 @@
 
   /* ─────────── 启动 ─────────── */
   function run() {
+    if (starting) return;
     var ng = el('cmpNew').value.trim(), sg = el('cmpStock').value.trim();
     if (!ng) { U.toast('请选择新成果 GDB', 'err'); return; }
     if (!sg) { U.toast('请选择存量 GDB', 'err'); return; }
+    starting = true;
+    var btn = el('cmpRunBtn'), label = btn.innerHTML;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '正在启动…';
+    U.setChip(el('cmpChip'), CHIP, 'run');
+    el('cmpResult').innerHTML = U.emptyHtml(EMPTY_ICON, '正在检查输入与坐标系…');
     U.clearCrsErrors(CRS_MAP);
     A.call('start_compare', ng, sg, el('cmpTif').value.trim() || null,
       el('cmpNewCrs').value.trim() || null,
@@ -153,7 +163,11 @@
       el('cmpDomCrs').value.trim() || null,
       el('cmpOutCrs').value.trim() || null)
       .then(function (r) {
+        starting = false;
+        btn.innerHTML = label;
+        btn.removeAttribute('aria-busy');
         if (!r || !r.started) {
+          syncReady();
           var msg = U.applyCrsError(r || {}, CRS_MAP) || '启动失败';
           el('cmpResult').innerHTML = errHtml(msg);
           U.toast((r && r.error) || '启动失败', 'err');
@@ -162,11 +176,17 @@
         if (r.output_dir) lastCmpOut = r.output_dir;
         finished = false;
         U.setChip(el('cmpChip'), CHIP, 'run');
-        el('cmpRunBtn').disabled = true;
+        btn.disabled = true;
         syncSteps();
         poll();
       })
-      .catch(function (e) { U.toast('启动失败：' + e, 'err'); });
+      .catch(function (e) {
+        starting = false;
+        btn.innerHTML = label;
+        btn.removeAttribute('aria-busy');
+        syncReady();
+        U.toast('启动失败：' + e, 'err');
+      });
   }
 
   /* ─────────── 初始化 ─────────── */

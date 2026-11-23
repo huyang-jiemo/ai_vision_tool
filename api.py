@@ -343,6 +343,7 @@ class Api:
                     # 只有证据不足才返回 CRS_REQUIRED 让用户填写。
                     coords.inspect_gdb_crs(
                         stock, stock_crs, field="stock_crs",
+                        path_field="stock_gdb",
                         infer_roots=coords.inference_roots(tif_path, stock),
                         anchor_crs=src_crs, anchor_bounds=ds.bounds)
         except coords.CRSError as e:
@@ -457,10 +458,12 @@ class Api:
                     dom_note = f"比对预览将跳过：无法打开底图（{e}）"
             infer_roots = coords.inference_roots(new_gdb, stock_gdb, dom_tif)
             coords.inspect_gdb_crs(
-                new_gdb, new_crs, field="new_crs", infer_roots=infer_roots,
+                new_gdb, new_crs, field="new_crs", path_field="new_gdb",
+                infer_roots=infer_roots,
                 anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
             coords.inspect_gdb_crs(
-                stock_gdb, stock_crs, field="stock_crs", infer_roots=infer_roots,
+                stock_gdb, stock_crs, field="stock_crs",
+                path_field="stock_gdb", infer_roots=infer_roots,
                 anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
         except coords.CRSError as e:
             return _crs_error_payload(e)

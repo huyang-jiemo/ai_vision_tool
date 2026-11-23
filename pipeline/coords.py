@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import struct
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 
@@ -495,6 +496,27 @@ def _vector_bounds(path, layers=None):
             max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
+def _shapefile_header_bounds(path):
+    """从 .shp 的 100 字节文件头读取范围，避免为筛选候选打开 GDAL。
+
+    文件头偏移 36/44/52/60 依次为 Xmin/Ymin/Xmax/Ymax（小端 double）。
+    读取失败或范围非法时返回 None，由调用方回退到 pyogrio。
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(100)
+        if len(head) < 68 or struct.unpack(">i", head[0:4])[0] != 9994:
+            return None
+        xmin, ymin, xmax, ymax = struct.unpack("<4d", head[36:68])
+        if not all(math.isfinite(v) for v in (xmin, ymin, xmax, ymax)):
+            return None
+        if xmax < xmin or ymax < ymin:
+            return None
+        return (xmin, ymin, xmax, ymax)
+    except Exception:
+        return None
+
+
 def _iter_shapefiles(roots, *, max_candidates=80, max_depth=5):
     seen: set[str] = set()
     count = 0
@@ -541,44 +563,65 @@ def infer_vector_crs(path, *, roots=(), anchor_crs=None, anchor_bounds=None,
     target = _vector_bounds(path, layers)
     if target is None or _bbox_area(target) <= 0:
         return None
-    best: dict[str, dict] = {}
+    best: list[dict] = []
+    anchor_cache: dict[str, float | None] = {}
     anchor_used = anchor_crs is not None and anchor_bounds is not None
     for shp in _iter_shapefiles(roots, max_candidates=max_candidates):
-        try:
-            info = pyogrio.read_info(shp)
-            raw = info.get("crs")
-            cb = info.get("total_bounds")
-            if not raw or cb is None or len(cb) != 4:
-                continue
-            cand = _as_crs_with_fallback(raw)
-            if not usable_crs(cand):
-                continue
-        except Exception:
+        # Shapefile 的 CRS 只存在于 .prj/.qpj；没有就无从判断，直接跳过。
+        stem = os.path.splitext(shp)[0]
+        prj = next((p for p in (stem + ".prj", stem + ".qpj")
+                    if os.path.isfile(p)), None)
+        if prj is None:
             continue
-        cb = tuple(float(v) for v in cb)
+        # 先用 100 字节文件头筛范围，绝大多数候选无需打开 GDAL。
+        cb = _shapefile_header_bounds(shp)
+        if cb is None:
+            try:
+                b = pyogrio.read_info(shp).get("total_bounds")
+            except Exception:
+                continue
+            if b is None or len(b) != 4:
+                continue
+            cb = tuple(float(v) for v in b)
         if not all(math.isfinite(v) for v in cb):
             continue
         raw_ratio = _bbox_cover_ratio(target, cb)
         if raw_ratio < 0.3:
             continue
-        anchor_ratio = 1.0
-        if anchor_crs is not None and anchor_bounds is not None:
-            try:
-                tb = transform_bounds(target, cand, anchor_crs)
-                anchor_ratio = _bbox_overlap_ratio(tb, anchor_bounds)
-            except Exception:
+        try:
+            # 用 .prj 文本作为缓存键：CRS.to_epsg() 对自定义 WKT 很慢
+            # （每次可达 0.2s），不能放在逐文件的热路径里。
+            text = Path(prj).read_text(
+                encoding="utf-8-sig", errors="replace").strip()
+            cand = _as_crs_with_fallback(text)
+            if not usable_crs(cand):
                 continue
-            if anchor_ratio < 0.05:
+        except Exception:
+            continue
+        anchor_ratio = 1.0
+        if anchor_used:
+            if text not in anchor_cache:
+                try:
+                    tb = transform_bounds(target, cand, anchor_crs)
+                    anchor_cache[text] = _bbox_overlap_ratio(tb, anchor_bounds)
+                except Exception:
+                    anchor_cache[text] = None
+            anchor_ratio = anchor_cache[text]
+            if anchor_ratio is None or anchor_ratio < 0.05:
                 continue
         score = 2.0 * anchor_ratio + raw_ratio
-        key = cand.to_epsg() or cand.name or str(cand)
-        old = best.get(key)
-        if old is None or score > old["score"]:
-            best[key] = {"crs": cand, "source": shp, "score": score,
-                         "raw": raw_ratio, "anchor": anchor_ratio}
+        # 不同工具写出的同一 CRS 可能 WKT 文本不同，按投影语义合并
+        old = next((d for d in best
+                    if d["crs"].equals(cand, ignore_axis_order=True)), None)
+        if old is None:
+            best.append({"crs": cand, "source": shp, "score": score,
+                         "raw": raw_ratio, "anchor": anchor_ratio})
+        elif score > old["score"]:
+            old.update({"source": shp, "score": score,
+                        "raw": raw_ratio, "anchor": anchor_ratio})
     if not best:
         return None
-    ranked = sorted(best.values(), key=lambda d: d["score"], reverse=True)
+    ranked = sorted(best, key=lambda d: d["score"], reverse=True)
     top = ranked[0]
     if len(ranked) > 1:
         second = ranked[1]
@@ -618,14 +661,21 @@ class GdbCRS:
 
 
 def inspect_gdb_crs(path, override=None, *, field: str = "input_crs",
-                    infer_roots=(), anchor_crs=None,
-                    anchor_bounds=None) -> GdbCRS:
+                    path_field: str | None = None, infer_roots=(),
+                    anchor_crs=None, anchor_bounds=None) -> GdbCRS:
     """逐层读取矢量数据 CRS；缺失层用 override，仍缺失则尝试自动推断。
 
     自动推断需要 ``infer_roots``（邻近目录）和/或主输入范围作为锚点；
     证据不足时仍抛 ``CRSMissingError``，绝不静默猜测。
     """
     import pyogrio
+    # 常见误选：把项目根目录当成 GDB 传进来。提前给出可操作的提示，
+    # 避免 pyogrio 抛出难以理解的“不是受支持的文件格式”。
+    if Path(path).is_dir() and not str(path).rstrip("/\\").lower().endswith(".gdb"):
+        raise CRSInvalidError(
+            f"「{path}」不是 GDB 目录。请选择以 .gdb 结尾的文件夹。",
+            field=path_field or field,
+            hint="在目录选择器中进入项目文件夹，选中「xxx.gdb」文件夹本身。")
     user = parse_crs(override, field=field)
     per_layer: dict = {}
     counts: dict[str, int] = {}

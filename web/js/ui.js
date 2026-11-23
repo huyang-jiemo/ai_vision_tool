@@ -295,6 +295,35 @@
     wrap.addEventListener('pointerup', endPan);
     wrap.addEventListener('pointercancel', endPan);
     wrap.addEventListener('dblclick', function () { setScale(1); });
+
+    /* 默认适应高度：横向长图若按宽度铺满会只剩一条窄带，
+       在容器有高度后自动放到“刚好填满高度”（最多 2.5 倍，双击可还原）。 */
+    var fitted = false;
+    function fitHeight() {
+      if (fitted || !img.naturalWidth || !img.naturalHeight) return;
+      var w = wrap.clientWidth, h = wrap.clientHeight;
+      if (!w || !h) return;
+      fitted = true;
+      var fitH = img.naturalHeight * w / img.naturalWidth;   /* 1 倍时的显示高度 */
+      if (fitH <= 0 || h <= fitH * 1.05) return;
+      var target = Math.min(2.5, h / fitH);
+      if (target > 1.05) setScale(target);
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      var ro = new ResizeObserver(function () {
+        fitHeight();
+        if (fitted) ro.disconnect();
+      });
+      wrap._ro = ro;   /* 保持引用，避免观察器被回收 */
+      ro.observe(wrap);
+    }
+    /* 布局完成与图片解码完成谁先谁后不确定，两个时机都要尝试 */
+    img.addEventListener('load', fitHeight);
+    if (img.complete) {
+      requestAnimationFrame(function () { requestAnimationFrame(fitHeight); });
+    } else if (typeof ResizeObserver === 'undefined') {
+      setTimeout(fitHeight, 160);
+    }
     return wrap;
   }
 
@@ -412,16 +441,21 @@
     return msg;
   }
   /* 成果坐标系说明：兼容 plan.report() 顶层字段与车载 result.crs 子对象 */
+  /* 结果行只保留可执行信息：EPSG 码去掉冗长的官方名称，
+     局部 TM 保留中央经线（对核对坐标有用）。 */
+  function crsShort(v) {
+    var t = String(v || '');
+    var m = t.match(/^(EPSG:\d+)\s*[（(][^）)]*[）)]\s*$/);
+    return m ? m[1] : t;
+  }
   function crsLine(r) {
     if (!r) return '';
     var crs = r.crs && typeof r.crs === 'object' ? r.crs : {};
-    var src = r.source_crs || crs.source_crs || '';
-    var tgt = r.target_crs || crs.target_crs || '';
+    var src = crsShort(r.source_crs || crs.source_crs || '');
+    var tgt = crsShort(r.target_crs || crs.target_crs || '');
     if (!src && !tgt) return '';
-    var parts = [];
-    if (src) parts.push('源坐标系：' + src);
-    if (tgt) parts.push('输出坐标系：' + tgt);
-    return parts.join(' · ');
+    if (src && tgt && src === tgt) return '坐标系：' + src;
+    return '坐标系：' + (src || '未知') + ' → ' + (tgt || '未知');
   }
 
   AVT.ui = {
