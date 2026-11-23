@@ -244,6 +244,36 @@ def _run_selftest(mode: str):
                         except Exception as e:
                             lines.append(f"转换=失败：{e}")
                             lines.append("roundtrip=fail")
+            # 打包后链路：GDB 导出（pyogrio/GDAL/PROJ）与前端资源是否被收集。
+            # windowed 程序在 Windows 上没有 stdout，必须写入诊断文件供 CI 断言。
+            try:
+                from pyproj import CRS
+                import pyogrio
+                from pipeline.exporter import export_points_gdb
+                gdb_path = os.path.join(
+                    tempfile.mkdtemp(prefix="avt_crs_gdb_"), "t.gdb")
+                gdb_ok = export_points_gdb(
+                    gdb_path, "detections",
+                    [{"x": 500000.0, "y": 3387000.0, "class_id": "2",
+                      "class_cn": "自检", "session": "S", "image": "I",
+                      "dist": 0.0, "score": 0.9}],
+                    crs=CRS.from_epsg(4547))
+                if gdb_ok and os.path.exists(gdb_path):
+                    info = pyogrio.read_info(gdb_path, layer="detections")
+                    epsg = (CRS.from_user_input(info["crs"]).to_epsg()
+                            if info.get("crs") else None)
+                    gdb_ok = epsg == 4547
+                lines.append("gdb_export=" + ("ok" if gdb_ok else "fail"))
+            except Exception as e:
+                lines.append(f"gdb_export=fail（{type(e).__name__}: {e}）")
+            web_root = resource_path("web")
+            web_files = ("index.html", "js/api.js", "js/ui.js",
+                         "js/pages/car.js", "js/pages/dom.js", "js/pages/cmp.js")
+            missing = [n for n in web_files
+                       if not os.path.isfile(os.path.join(web_root, *n.split("/")))]
+            lines.append("web_assets=" + ("ok" if not missing else
+                                          "fail（缺少：" + "、".join(missing) + "）"))
+            flush()
             lines.append("stage=done")
         except Exception as e:
             import traceback
