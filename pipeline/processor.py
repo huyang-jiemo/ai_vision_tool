@@ -1,14 +1,13 @@
 """Pipeline 编排：加载→(鱼眼)→缩放→检测→车道线→地理参考→预览→导出→时序变化。"""
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 
 from . import coords
-from .config import BUSINESS_CATEGORIES, CATEGORY_CN, CLASS_CN
+from .config import CATEGORY_CN, CLASS_CN
 from .change_detector import detect_changes
 from .crs_plan import make_plan
 from .data_loader import DataProject, prepare_poses, validate_pose_coordinates
@@ -43,7 +42,6 @@ class Pipeline:
         self.errors = []
 
     def _get_corrector(self, w, h, scale):
-        import cv2
         if self._corrector and self._corr_dims == (w, h, scale):
             return self._corrector
         f = self.cfg.fisheye
@@ -118,6 +116,14 @@ class Pipeline:
             (out / "gdb").mkdir(parents=True, exist_ok=True)
 
         pose_crs_obj = coords.parse_crs(pose_crs, field="pose_crs") or CRS.from_epsg(4326)
+        # HDI col12/13 是经纬度（度）；若用投影 CRS 解释，会把度当米。
+        if not pose_crs_obj.is_geographic:
+            raise coords.CRSInvalidError(
+                f"位姿文件使用经纬度列，位姿坐标系不能是投影坐标系"
+                f"「{coords.describe(pose_crs_obj)}」。",
+                field="pose_crs",
+                hint="请填写地理坐标系（如 EPSG:4326 / EPSG:4490）；"
+                     "需要投影成果请在 output_crs 中填写。")
         target_override = coords.parse_crs(output_crs, field="output_crs")
         proj = DataProject.load(data_dir)
         all_poses = proj.poses

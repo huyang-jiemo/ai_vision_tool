@@ -349,13 +349,83 @@ def test_stock_different_crs() -> list[bool]:
     return results
 
 
+def test_projected_to_geographic_output() -> list[bool]:
+    """投影 DOM 输出经纬度：成果 CRS 与已知点偏差都要正确。"""
+    import math
+
+    tmp = tempfile.mkdtemp(prefix="dom_crs_geo_out_")
+    tif = os.path.join(tmp, "dom.tif")
+    _make_dom(tif, "EPSG:3857", (12730000, 3577000))
+    out = os.path.join(tmp, "out")
+    report, err, _ = _run(tif, out, output_crs="EPSG:4326")
+    results = [_check("3857 DOM → output_crs=4326 提取成功",
+                      err is None, str(err) if err else "")]
+    if err is not None:
+        return results
+    mid = _lane_midpoint(os.path.join(out, "正射提取.gdb"))
+    exp = Transformer.from_crs(3857, 4326, always_xy=True).transform(
+        12730030.0, 3576989.85)
+    dist = None
+    if mid is not None:
+        dist = math.hypot((mid.x - exp[0]) * 111320
+                          * math.cos(math.radians(exp[1])),
+                          (mid.y - exp[1]) * 110540)
+    results += [
+        _check("输出跟随覆盖值 = EPSG:4326",
+               "EPSG:4326" in report.get("target_crs", ""),
+               report.get("target_crs", "")),
+        _check("地理输出已知点误差 <0.5m",
+               dist is not None and dist < 0.5,
+               f"mid=({mid.x:.8f},{mid.y:.8f}) 期望=({exp[0]:.8f},{exp[1]:.8f}) "
+               f"距离={dist:.3f}m" if mid is not None else "无标线"),
+    ]
+    return results
+
+
+def test_stock_corridor_without_clip() -> list[bool]:
+    """关闭“按存量范围裁剪”时，走廊约束仍应使用存量 GDB。"""
+    import geopandas as gpd
+    from shapely.geometry import LineString
+
+    tmp = tempfile.mkdtemp(prefix="dom_crs_corridor_")
+    tif = os.path.join(tmp, "dom.tif")
+    _make_dom(tif, "EPSG:3857", (12730000, 3577000))
+    tf = Transformer.from_crs(3857, 4547, always_xy=True)
+    x0, y0 = tf.transform(12730000.0, 3576989.0)
+    x1, y1 = tf.transform(12730060.0, 3576989.0)
+    stock = os.path.join(tmp, "stock.gdb")
+    gpd.GeoDataFrame(
+        {"ID": [1]}, geometry=[LineString([(x0, y0), (x1, y1)])],
+        crs="EPSG:4547").to_file(stock, layer="LTSL", driver="OpenFileGDB")
+
+    out = os.path.join(tmp, "out")
+    report, err, logs = _run(tif, out, stock_gdb=stock,
+                             use_stock_clip=False, use_corridor=True)
+    results = [_check("关闭存量裁剪 + 开启走廊 → 提取成功",
+                      err is None, str(err) if err else "")]
+    if err is not None:
+        return results
+    results += [
+        _check("处理范围改为全图而非静默裁剪",
+               any("未启用存量裁剪" in line for line in logs),
+               " / ".join(line for line in logs if "处理范围" in line)),
+        _check("走廊约束仍然生效",
+               any("存量走廊约束：开启" in line for line in logs),
+               " / ".join(line for line in logs if "走廊" in line)),
+        _check("走廊内水平标线仍被提取",
+               _lane_midpoint(os.path.join(out, "正射提取.gdb")) is not None),
+    ]
+    return results
+
+
 def main() -> int:
     _utf8_stdout()
     results = []
     for fn in (test_crs_resolution, test_output_follows_3857,
                test_output_follows_4547, test_output_follows_4326,
                test_output_override, test_missing_crs_override,
-               test_stock_different_crs):
+               test_stock_different_crs, test_stock_corridor_without_clip,
+               test_projected_to_geographic_output):
         try:
             results += fn()
         except Exception as e:   # noqa: BLE001 - 单个用例失败不应中断整体自检

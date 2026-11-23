@@ -102,11 +102,14 @@
         </div>
         <details class="crs-adv" id="carCrsAdv">
           <summary>坐标系（高级）</summary>
-          <p class="hint crs-adv__hint">留空时位姿按 WGS84 经纬度计算、输出跟随位姿；填写后以填写值为准。支持 EPSG:xxxx、WKT 或 .prj 文件路径。距离字段始终为米。</p>
+          <p class="hint crs-adv__hint">位姿文件第 13/14 列固定为经纬度（度），因此位姿坐标系只能填地理坐标系；留空按 WGS84 计算。输出默认跟随位姿，可填投影坐标系。支持 EPSG:xxxx、WKT 或 .prj 文件路径；距离字段始终为米。</p>
           <div class="cfg-grid">
             <div class="field field--text">
               <label class="field__lb" for="carPoseCrs">位姿坐标系<span class="field__opt">（留空 = EPSG:4326）</span></label>
-              <input class="inp inp--mono" type="text" id="carPoseCrs" placeholder="EPSG:4326" />
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="carPoseCrs" placeholder="EPSG:4326（地理坐标系）" />
+                <button class="btn btn--sm btn--ghost" id="browseCarPoseCrs" type="button">选择 .prj</button>
+              </div>
             </div>
             <div class="field field--text">
               <label class="field__lb" for="carOutCrs">输出坐标系<span class="field__opt">（留空 = 跟随位姿）</span></label>

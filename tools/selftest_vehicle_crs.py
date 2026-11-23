@@ -227,6 +227,31 @@ def test_invalid_pose() -> list[bool]:
     ]
 
 
+def test_projected_pose_crs_rejected() -> list[bool]:
+    """HDI 的 col12/13 是经纬度，投影 CRS 不能作为位姿坐标系。"""
+    tmp = tempfile.mkdtemp(prefix="veh_crs_proj_")
+    data = os.path.join(tmp, "data")
+    _make_project(data)
+    err = None
+    try:
+        Pipeline(_config(), FakeDetector()).process_project(
+            data, os.path.join(tmp, "out"), export_shp=False, export_gdb=False,
+            pose_crs="EPSG:4547", wlog=lambda _s: None)
+    except coords.CRSInvalidError as e:
+        err = e
+    return [
+        _check("投影坐标系作位姿坐标系 → CRS_INVALID",
+               err is not None and err.code == "CRS_INVALID",
+               str(err) if err else "未抛错"),
+        _check("错误字段定位到 pose_crs",
+               err is not None and err.field == "pose_crs",
+               getattr(err, "field", "")),
+        _check("提示明确要求地理坐标系",
+               err is not None and "地理坐标系" in (err.hint + str(err)),
+               getattr(err, "hint", "")),
+    ]
+
+
 def test_parse_crs_inputs() -> list[bool]:
     from pyproj import CRS
     from pipeline import crs_plan
@@ -251,7 +276,7 @@ def main() -> int:
     _utf8_stdout()
     results: list[bool] = []
     for fn in (test_default_4326, test_output_4547, test_invalid_pose,
-               test_parse_crs_inputs):
+               test_projected_pose_crs_rejected, test_parse_crs_inputs):
         try:
             results += fn()
         except Exception as e:   # noqa: BLE001 - 单个用例失败不应中断整体自检

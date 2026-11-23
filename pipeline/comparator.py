@@ -179,7 +179,7 @@ class Comparator:
         return pairs, new_only, ref_only, modified
 
     def _match_points(self, new_g, ref_g):
-        pairs, new_only, modified = [], [], []
+        pairs, new_only = [], []
         used_ref = set()
         ref_pts = np.array([(p.x, p.y) for p in ref_g.geometry])
         for i, g in enumerate(new_g.geometry):

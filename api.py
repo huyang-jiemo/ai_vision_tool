@@ -1,6 +1,7 @@
 """JS↔Python 桥：后台线程跑 Pipeline，前端轮询状态。"""
 import base64
 from collections import deque
+import math
 import os
 import subprocess
 import sys
@@ -50,8 +51,15 @@ def _record_error(st: RunState, exc: Exception) -> None:
         st.crs_candidates = getattr(exc, "candidates", []) or []
 
 
-def _reset_state(st: RunState) -> None:
+def _begin_run(st: RunState) -> bool:
+    """原子地开始新任务：已在运行返回 False；否则清空状态并置为 running。
+
+    前端在 start_* 返回后立即轮询，因此 running 必须在启动线程前写入，
+    不能等后台线程自己设置——否则首次轮询可能读到上一轮的 done。
+    """
     with st.lock:
+        if st.state == "running":
+            return False
         st.state, st.progress, st.total = "running", 0, 0
         st.current = ""
         st.logs.clear()
@@ -62,6 +70,13 @@ def _reset_state(st: RunState) -> None:
         st.crs_info = {}
         st.log_file = ""
         st.files = []
+        return True
+
+
+def _param_error_payload(message: str, *, field: str, hint: str = "") -> dict:
+    """普通参数错误：复用 crs_field 让前端聚焦到对应输入框。"""
+    return {"started": False, "error": message, "error_code": "PARAM_INVALID",
+            "crs_field": field, "hint": hint}
 
 
 def _status_payload(st: RunState) -> dict:
@@ -189,16 +204,47 @@ class Api:
         if self.state.state == "running":
             return {"started": False, "error": "已在运行中"}
         try:
-            coords.parse_crs(pose_crs, field="pose_crs")
+            pose_crs_obj = coords.parse_crs(pose_crs, field="pose_crs")
             coords.parse_crs(output_crs, field="output_crs")
         except coords.CRSError as e:
             return _crs_error_payload(e)
+        # HDI 的 col12/13 固定是经纬度（度）。若把投影坐标系当作位姿坐标系，
+        # pyproj 会把 114.3/30.6 当成米，成果会静默偏移数百万米。
+        if pose_crs_obj is not None and not pose_crs_obj.is_geographic:
+            return _crs_error_payload(coords.CRSInvalidError(
+                f"位姿文件使用经纬度列，位姿坐标系不能是投影坐标系"
+                f"「{coords.describe(pose_crs_obj)}」。",
+                field="pose_crs",
+                hint="请填写地理坐标系（如 EPSG:4326 / EPSG:4490）；"
+                     "需要投影成果请在“输出坐标系”中填写。"))
+        # 输入框清空时 pywebview 会传 null；按默认值处理，而不是让后台
+        # 线程在 float(None) 处崩溃并永久停在 running。
+        if conf is None or (isinstance(conf, str) and not conf.strip()):
+            conf_val = 0.20
+        else:
+            try:
+                conf_val = float(conf)
+            except (TypeError, ValueError):
+                return _param_error_payload(
+                    f"置信度阈值不是有效数字：{conf!r}", field="conf",
+                    hint="请输入 0–1 之间的数值，例如 0.20。")
+        if not math.isfinite(conf_val) or not (0.0 <= conf_val <= 1.0):
+            return _param_error_payload(
+                f"置信度阈值超出范围：{conf}（应在 0–1 之间）", field="conf",
+                hint="请输入 0–1 之间的数值，例如 0.20。")
+        if not _begin_run(self.state):
+            return {"started": False, "error": "已在运行中"}
         t = threading.Thread(
-            target=self._run,
-            args=(data_dir, output_dir, conf, max_images, export_shp, export_gdb,
-                  pose_crs, output_crs),
+            target=self._guarded,
+            args=(self.state, self._run, data_dir, output_dir, conf_val,
+                  max_images, export_shp, export_gdb, pose_crs, output_crs),
             daemon=True)
-        t.start()
+        try:
+            t.start()
+        except Exception as e:
+            _record_error(self.state, e)
+            return {"started": False, "error": f"无法启动后台任务：{e}",
+                    "error_code": "INTERNAL"}
         return {"started": True}
 
     def get_status(self):
@@ -276,7 +322,9 @@ class Api:
         tif_path, tip = self._resolve_dom_tif(tif_path)
         if not tif_path:
             return {"started": False, "error": tip or "正射影像不存在"}
-        stock = stock_gdb if (use_stock_clip and stock_gdb) else None
+        # 存量 GDB 同时服务于“范围裁剪”和“道路走廊”两个独立开关：
+        # 只关掉裁剪时仍必须保留存量，否则走廊会被静默禁用。
+        stock = stock_gdb if (stock_gdb and (use_stock_clip or use_corridor)) else None
         if stock and not os.path.exists(stock):
             return {"started": False, "error": "存量 GDB 不存在",
                     "error_code": "INPUT_NOT_FOUND", "crs_field": "stock_gdb"}
@@ -296,12 +344,20 @@ class Api:
         except Exception as e:
             return {"started": False, "error": f"输入预检失败：{e}",
                     "error_code": "INTERNAL"}
-        t = threading.Thread(target=self._run_dom,
-                             args=(tif_path, output_dir, stock_gdb, min_len,
-                                   use_stock_clip, use_corridor, tip,
-                                   input_crs, stock_crs, output_crs),
+        if not _begin_run(self.dom_state):
+            return {"started": False, "error": "正射解译正在运行中"}
+        t = threading.Thread(target=self._guarded,
+                             args=(self.dom_state, self._run_dom, tif_path,
+                                   output_dir, stock, min_len, use_stock_clip,
+                                   use_corridor, tip, input_crs, stock_crs,
+                                   output_crs),
                              daemon=True)
-        t.start()
+        try:
+            t.start()
+        except Exception as e:
+            _record_error(self.dom_state, e)
+            return {"started": False, "error": f"无法启动后台任务：{e}",
+                    "error_code": "INTERNAL"}
         return {"started": True, "tif": tif_path, "note": tip}
 
     def get_dom_status(self):
@@ -311,13 +367,14 @@ class Api:
     def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip,
                  use_corridor=True, note="", input_crs=None, stock_crs=None,
                  output_crs=None):
-        from pipeline.dom_extractor import DomExtractor
         st = self.dom_state
-        _reset_state(st)
+        stock = stock_gdb if (stock_gdb and os.path.exists(stock_gdb)) else None
+        clip_active = bool(use_stock_clip and stock)
+        corridor_active = bool(use_corridor and stock)
         log_fh = self._open_job_log(st, output_dir, "正射影像提取",
                                     f"影像: {tif_path}\n输出: {output_dir}\n"
-                                    f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m "
-                                    f"走廊约束: {use_corridor}\n"
+                                    f"存量裁剪: {clip_active} 最短标线: {min_len}m "
+                                    f"走廊约束: {corridor_active}\n"
                                     f"影像坐标系: {input_crs or '（跟随文件）'} "
                                     f"存量坐标系: {stock_crs or '（跟随文件）'} "
                                     f"输出坐标系: {output_crs or '（跟随影像）'}"
@@ -333,12 +390,12 @@ class Api:
                 st.current = msg or ""
 
         try:
+            from pipeline.dom_extractor import DomExtractor
             extractor = DomExtractor(min_len=float(min_len))
-            stock = stock_gdb if (use_stock_clip and stock_gdb
-                                  and os.path.exists(stock_gdb)) else None
             res = extractor.run(tif_path, output_dir, stock_gdb=stock,
                                 wlog=wlog, progress_cb=cb,
-                                use_corridor=use_corridor and stock is not None,
+                                use_stock_clip=use_stock_clip,
+                                use_corridor=corridor_active,
                                 input_crs=input_crs, stock_crs=stock_crs,
                                 output_crs=output_crs)
             with st.lock:
@@ -396,11 +453,19 @@ class Api:
                     "error_code": "INTERNAL"}
         parent = os.path.dirname(os.path.abspath(stock_gdb)) or os.path.expanduser("~")
         out_dir = os.path.join(parent, "变化比对_" + time.strftime("%Y%m%d_%H%M%S"))
-        t = threading.Thread(target=self._run_compare,
-                             args=(new_gdb, stock_gdb, out_dir, dom_tif,
-                                   new_crs, stock_crs, dom_crs, output_crs, dom_note),
+        if not _begin_run(self.cmp_state):
+            return {"started": False, "error": "比对正在运行中"}
+        t = threading.Thread(target=self._guarded,
+                             args=(self.cmp_state, self._run_compare, new_gdb,
+                                   stock_gdb, out_dir, dom_tif, new_crs,
+                                   stock_crs, dom_crs, output_crs, dom_note),
                              daemon=True)
-        t.start()
+        try:
+            t.start()
+        except Exception as e:
+            _record_error(self.cmp_state, e)
+            return {"started": False, "error": f"无法启动后台任务：{e}",
+                    "error_code": "INTERNAL"}
         return {"started": True, "output_dir": out_dir, "note": dom_note}
 
     def get_cmp_status(self):
@@ -410,9 +475,7 @@ class Api:
     def _run_compare(self, new_gdb, stock_gdb, output_dir, dom_tif,
                      new_crs=None, stock_crs=None, dom_crs=None,
                      output_crs=None, note=""):
-        from pipeline.comparator import Comparator
         st = self.cmp_state
-        _reset_state(st)
         log_fh = self._open_job_log(st, output_dir, "变化比对",
                                     f"新成果: {new_gdb}\n存量: {stock_gdb}\n"
                                     f"输出: {output_dir}（自动生成，无需选择）\n"
@@ -431,6 +494,7 @@ class Api:
                 st.current = msg or ""
 
         try:
+            from pipeline.comparator import Comparator
             res = Comparator().run(new_gdb, stock_gdb, output_dir,
                                    dom_tif=dom_tif or None, wlog=wlog, progress_cb=cb,
                                    new_crs=new_crs, stock_crs=stock_crs,
@@ -482,6 +546,34 @@ class Api:
                     pass
         return wlog
 
+    def _guarded(self, st, fn, *args):
+        """所有后台线程的统一入口：异常与意外返回都必须写入终态。
+
+        否则一条 import/DLL 错误就能让界面永久停在 running，且没有可见错误。
+        """
+        try:
+            fn(*args)
+        except Exception as e:
+            with st.lock:
+                terminal = st.state in ("done", "error")
+            if terminal:
+                return
+            _record_error(st, e)
+            try:
+                self._wlog(st, None)("ERR: 任务中断 " + str(e))
+            except Exception:
+                pass
+            return
+        with st.lock:
+            still_running = st.state == "running"
+        if still_running:
+            err = RuntimeError("任务线程意外结束，未写入完成状态")
+            _record_error(st, err)
+            try:
+                self._wlog(st, None)("ERR: " + str(err))
+            except Exception:
+                pass
+
     # ---- 内部 ----
     def _get_detector(self):
         if self._detector is not None:
@@ -506,7 +598,6 @@ class Api:
 
     def _run(self, data_dir, output_dir, conf, max_images, export_shp, export_gdb,
              pose_crs=None, output_crs=None):
-        _reset_state(self.state)
         self.cfg.conf_threshold = float(conf)
 
         # 运行日志同步落盘到输出目录（每次运行独立文件，保留历史）

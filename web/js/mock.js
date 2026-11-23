@@ -86,6 +86,15 @@
   var CAR_OUT = 'D:\\众源解译\\输出\\车载提取_20250412_0931';
   var DOM_OUT = 'D:\\众源解译\\输出\\正射提取.gdb';
   var CMP_OUT = 'D:\\存量\\变化比对_20250412_1021\\变化比对.gdb';
+  /* 与真实后端一致：preview_image 返回 data URI，而不是磁盘路径 */
+  var MOCK_PREVIEW = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360">' +
+    '<rect width="640" height="360" fill="#e8ebef"/>' +
+    '<path d="M40 300 L600 60" stroke="#9aa4b2" stroke-width="46" fill="none"/>' +
+    '<path d="M40 300 L600 60" stroke="#fff" stroke-width="4" stroke-dasharray="18 14" fill="none"/>' +
+    '<circle cx="320" cy="180" r="12" fill="#d9534f"/>' +
+    '<text x="340" y="185" font-family="sans-serif" font-size="18" fill="#333">演示预览</text>' +
+    '</svg>');
 
   /* ─────────── 工具 ─────────── */
   function rnd(i, k) {
@@ -294,7 +303,7 @@
     },
     get_cmp_status: function () { return ok(cmpSnap()); },
 
-    preview_image: function () { return ok(CMP_OUT); },
+    preview_image: function () { return ok(MOCK_PREVIEW); },
     read_text_file: function () { return ok(''); }
   };
 

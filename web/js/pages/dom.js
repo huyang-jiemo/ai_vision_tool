@@ -86,6 +86,7 @@
 
     if (s.state === 'error') {
       finished = false;
+      domPrevSeq++;   /* 让上一轮尚未返回的预览图失效 */
       U.setChip(el('domChip'), CHIP, 'fail');
       U.setPath('domResPath', '');
       var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
@@ -97,6 +98,7 @@
       if (s.result) showDomResult(s.result);
     } else if (s.state === 'running') {
       finished = false;
+      domPrevSeq++;   /* 新任务运行中：旧预览不得追加到当前占位区 */
       U.setChip(el('domChip'), CHIP, 'run');
       U.setPath('domResPath', '');
       el('domResult').innerHTML = U.emptyHtml(EMPTY_ICON, '正在提取，完成后显示统计与预览图');

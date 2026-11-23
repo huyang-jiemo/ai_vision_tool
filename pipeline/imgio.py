@@ -11,7 +11,6 @@ import os
 def imwrite_unicode(path, img, params=None):
     """把 OpenCV 图像写入 path（支持中文路径）。返回是否成功。"""
     import cv2
-    import numpy as np
     ext = os.path.splitext(str(path))[1] or ".png"
     ok, buf = cv2.imencode(ext, img, params or [])
     if not ok:

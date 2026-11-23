@@ -94,6 +94,7 @@
     log.push(s.logs, s.log_seq);
     if (s.state === 'error') {
       finished = false;
+      cmpPrevSeq++;   /* 让上一轮尚未返回的预览图失效 */
       U.setChip(el('cmpChip'), CHIP, 'fail');
       U.setPath('cmpResPath', '');
       var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
@@ -105,6 +106,7 @@
       if (s.result) showCmpResult(s.result);
     } else if (s.state === 'running') {
       finished = false;
+      cmpPrevSeq++;   /* 新任务运行中：旧预览不得覆盖当前占位区 */
       U.setChip(el('cmpChip'), CHIP, 'run');
       U.setPath('cmpResPath', '');
       el('cmpResult').innerHTML = U.emptyHtml(EMPTY_ICON, '正在比对，完成后显示结果');

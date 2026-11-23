@@ -185,6 +185,66 @@ def test_pipeline_invalid_pose_crs() -> list[bool]:
     ]
 
 
+def test_pipeline_invalid_params() -> list[bool]:
+    """投影位姿坐标系与非法置信度必须在同步预检阶段拒绝。"""
+    tmp = tempfile.mkdtemp(prefix="api_crs_params_")
+    out = os.path.join(tmp, "out")
+    api = Api()
+    r = api.start_pipeline("/nonexistent", out, pose_crs="EPSG:4547")
+    results = [
+        _check("投影 pose_crs → CRS_INVALID",
+               r.get("started") is False and r.get("error_code") == "CRS_INVALID",
+               str(r)),
+        _check("投影 pose_crs 字段定位", r.get("crs_field") == "pose_crs"),
+    ]
+    r2 = api.start_pipeline("/nonexistent", out, conf=float("nan"))
+    results += [
+        _check("NaN 置信度 → PARAM_INVALID",
+               r2.get("started") is False
+               and r2.get("error_code") == "PARAM_INVALID",
+               str(r2)),
+        _check("置信度错误字段定位到 conf", r2.get("crs_field") == "conf"),
+        _check("参数错误不启动线程", api.state.state == "idle", api.state.state),
+    ]
+    # 清空输入框 → pywebview 传 null：按默认阈值启动，后台必须以终态结束
+    r3 = api.start_pipeline("/nonexistent", out, conf=None)
+    results.append(_check("置信度 null 按默认值启动", r3.get("started") is True,
+                          str(r3)))
+    if r3.get("started"):
+        s = _wait(api.get_status, timeout=30)
+        results.append(_check("null 置信度不会卡在 running",
+                              s.get("state") in ("done", "error"),
+                              f"{s.get('state')} / {s.get('error')}"))
+    return results
+
+
+def test_state_guard() -> list[bool]:
+    """后台线程兜底：异常/意外返回都必须落地为 error，不能停在 running。"""
+    from api import RunState, _begin_run
+
+    st = RunState()
+    ok_first = _begin_run(st)
+    ok_second = _begin_run(st)
+    api = Api()
+    st2 = RunState()
+    _begin_run(st2)
+    api._guarded(st2, lambda: 1 / 0)
+    st3 = RunState()
+    _begin_run(st3)
+    api._guarded(st3, lambda: None)
+    return [
+        _check("_begin_run 首次成功、重复调用拒绝",
+               ok_first is True and ok_second is False,
+               f"{ok_first}/{ok_second}"),
+        _check("后台异常落地为 error",
+               st2.state == "error" and st2.error_code == "INTERNAL",
+               f"{st2.state}/{st2.error_code}"),
+        _check("线程意外返回也落地为 error",
+               st3.state == "error" and "意外结束" in (st3.error or ""),
+               f"{st3.state}/{st3.error}"),
+    ]
+
+
 def test_pipeline_background_pose_error() -> list[bool]:
     """后台 HDI 坐标非法时，get_status 要回传 POSE_COORDINATES_INVALID。"""
     from PIL import Image
@@ -225,6 +285,7 @@ def main() -> int:
     results: list[bool] = []
     for fn in (test_dom_preflight_and_retry, test_dom_invalid_and_missing_stock,
                test_compare_preflight, test_pipeline_invalid_pose_crs,
+               test_pipeline_invalid_params, test_state_guard,
                test_pipeline_background_pose_error):
         try:
             results += fn()

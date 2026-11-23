@@ -389,7 +389,6 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
         counts[name] = nfeat
     if missing and user is None:
         names = "、".join(missing[:5]) + ("…" if len(missing) > 5 else "")
-        candidates = []
         raise CRSMissingError(
             f"矢量数据「{Path(path).name}」图层「{names}」缺少坐标系。"
             f"请在对应的坐标系输入框中填写 EPSG:xxxx 或 WKT 后重试。",

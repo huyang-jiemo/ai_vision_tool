@@ -101,7 +101,8 @@ class DomExtractor:
             pad_m: float = 60.0, wlog=print, progress_cb=None, export_shp: bool = False,
             use_corridor: bool = True, corridor_half_m: float = 8.0,
             corridor_layers: tuple | None = ("LTSL", "LFCL"),
-            input_crs=None, stock_crs=None, output_crs=None):
+            input_crs=None, stock_crs=None, output_crs=None,
+            use_stock_clip: bool = True):
         import geopandas as gpd
         import rasterio
         import shapely
@@ -137,8 +138,9 @@ class DomExtractor:
             wlog(f"存量坐标系：{coords.crs_label(stock_info.primary)}"
                  + ("（混合 CRS，逐层转换）" if stock_info.origin == "mixed" else ""))
 
-        # 处理范围：默认全图；给定存量 GDB 时按其范围 + pad 裁剪（实用场景：图幅更新）
-        if stock_info is not None:
+        # 处理范围：默认全图；启用存量裁剪时按其范围 + pad 裁剪（图幅更新场景）。
+        # 裁剪与走廊是两个独立开关：不裁剪时仍可用存量构造道路走廊。
+        if stock_info is not None and use_stock_clip:
             try:
                 b = self._stock_bounds(stock_gdb, stock_info, working_crs)
                 b_src = coords.transform_bounds(
@@ -155,7 +157,8 @@ class DomExtractor:
                 win = rasterio.windows.Window(0, 0, dom.width, dom.height)
         else:
             win = rasterio.windows.Window(0, 0, dom.width, dom.height)
-            wlog(f"处理范围：全图（{win.width:.0f}×{win.height:.0f}px）")
+            why = "未启用存量裁剪" if stock_info is not None else "全图"
+            wlog(f"处理范围：{why}（{win.width:.0f}×{win.height:.0f}px）")
 
         # 存量走廊约束：仅保留存量「线状道路要素」缓冲范围内的提取结果
         # （对标基准 GDB 的交通标线口径：道路以外不提取，建筑/屋顶/停车场一律剔除）

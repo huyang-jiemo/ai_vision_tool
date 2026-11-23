@@ -75,6 +75,7 @@ jobs:
           python tools/selftest_vehicle_crs.py
           python tools/selftest_api_crs.py
           python tools/selftest_regressions.py
+          python tools/selftest_launcher.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       # 先单独验证 onedir 主程序本身能启动并完成自检（不含打包链路），
