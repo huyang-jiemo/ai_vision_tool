@@ -69,13 +69,23 @@ jobs:
         run: python models/download_models.py
       # Windows 也要跑纯 Python 自检：Windows 专有的路径/编码问题
       # （如 cp1252 控制台、路径分隔符）只有在这里才会暴露。
-      - name: Run CRS self-tests
-        run: |
-          python tools/selftest_dom_crs.py
-          python tools/selftest_vehicle_crs.py
-          python tools/selftest_api_crs.py
-          python tools/selftest_regressions.py
-          python tools/selftest_launcher.py
+      # 拆成独立步骤并设置超时：任何一项挂起时能直接定位，且不会拖住整个
+      # 作业直到默认超时。
+      - name: Self-test DOM CRS
+        timeout-minutes: 8
+        run: python tools/selftest_dom_crs.py
+      - name: Self-test vehicle CRS
+        timeout-minutes: 8
+        run: python tools/selftest_vehicle_crs.py
+      - name: Self-test API CRS
+        timeout-minutes: 8
+        run: python tools/selftest_api_crs.py
+      - name: Self-test regressions
+        timeout-minutes: 8
+        run: python tools/selftest_regressions.py
+      - name: Self-test launcher
+        timeout-minutes: 8
+        run: python tools/selftest_launcher.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       # 先单独验证 onedir 主程序本身能启动并完成自检（不含打包链路），

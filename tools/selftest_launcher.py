@@ -37,15 +37,25 @@ def _payload(path: Path, files: dict[str, str]) -> None:
 
 
 def _run(mod, sandbox: Path, calls: list):
-    """模拟冻结后的 _MEIPASS，并拦截真正启动子进程。"""
+    """模拟冻结后的 _MEIPASS，拦截子进程与错误弹窗。
+
+    Windows 上 ``_fatal`` 会调用 MessageBoxW；CI/无桌面会话中该调用可能
+    一直等待用户点击，导致自检挂起。测试只验证返回码与文件状态，因此把
+    错误弹窗替换为空操作。
+    """
     old_meipass = getattr(sys, "_MEIPASS", None)
     old_popen = mod.subprocess.Popen
+    old_fatal = getattr(mod, "_fatal", None)
     sys._MEIPASS = str(sandbox)
     mod.subprocess.Popen = lambda args, **kw: calls.append((args, kw))
+    if old_fatal is not None:
+        mod._fatal = lambda _msg: None
     try:
         return mod.main()
     finally:
         mod.subprocess.Popen = old_popen
+        if old_fatal is not None:
+            mod._fatal = old_fatal
         if old_meipass is None:
             del sys._MEIPASS
         else:
