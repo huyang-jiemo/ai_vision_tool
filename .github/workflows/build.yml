@@ -130,9 +130,16 @@ jobs:
       # 自动维护的 winget 清单仓库解析最新版 x64 直链与 SHA256。
       - name: Bundle WebView2 runtime (fixed version, portable)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $H = @{ 'User-Agent' = 'ai-vision-tool-ci' }
+          # 匿名调用 api.github.com 会被运行器共享出口 IP 的限流拖垮，
+          # 用 Actions 自带的 token 认证（只读公共仓库即可）。
+          $H = @{
+            'User-Agent'    = 'ai-vision-tool-ci'
+            'Authorization' = "Bearer $env:GH_TOKEN"
+          }
           $vers = @(); $page = 1
           while ($page -le 30) {
             $r = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/m/Microsoft/EdgeWebView2Runtime?per_page=100&page=$page" -Headers $H
