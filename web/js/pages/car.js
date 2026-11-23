@@ -17,6 +17,8 @@
     fail: ['fail', '失败', 'bang']
   };
   var SCAN_TIP = '数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录 · 成果输出 SHP（含标注预览图）';
+  /* 后端 crs_field → 输入框 id：坐标系错误时自动展开高级区并聚焦 */
+  var CRS_MAP = { pose_crs: 'carPoseCrs', output_crs: 'carOutCrs' };
 
   var log = null, syncReady = null;
   var runStartTs = 0, elapsedTimer = null, pollTimer = null;
@@ -102,6 +104,8 @@
         '<td class="c-num"><span class="u-num">' + (v.lane || 0) + '</span></td></tr>';
     });
     html += '</tbody></table></div>';
+    var cl = U.crsLine(r);
+    if (cl) html += '<p class="hint">' + U.esc(cl) + ' · 距离字段为米</p>';
     el('resultBody').innerHTML = html;
     U.setPath('carResPath', r.output_dir ? r.output_dir + (r.change_path ? ' · 变化: ' + r.change_path : '') : '');
   }
@@ -145,7 +149,8 @@
       finished = false;
       U.setChip(el('stateChip'), CHIP, 'fail');
       U.setPath('carResPath', '');
-      U.showErrBox('errBox', '提取中断', s.error || '发生未知错误');
+      var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
+      U.showErrBox('errBox', '提取中断', msg);
     } else if (s.state === 'done') {
       finished = true;
       U.setChip(el('stateChip'), CHIP, badN ? 'warn' : 'done');
@@ -177,7 +182,7 @@
     if (lastScan.dir === d && lastScan.matched >= 0) return Promise.resolve(lastScan);
     U.setHint(info, '正在扫描数据源…');
     return A.call('scan_directory', d).then(function (r) {
-      lastScan = { dir: d, matched: r.matched };
+      lastScan = { dir: d, matched: r.matched, error: r.error || '' };
       if (r.error) {
         U.setHint(info, '扫描失败：' + r.error, 'err');
         return lastScan;
@@ -219,11 +224,25 @@
     var dataDir = el('dataDir').value.trim(), outDir = el('outDir').value.trim();
     if (!dataDir || !outDir) { U.toast('请先选择数据源目录与输出目录', 'err'); return; }
     scanDir().then(function () {
-      if (lastScan.matched === 0) { U.toast('数据源中没有可配对的影像', 'err'); return; }
+      if (lastScan.matched === 0) {
+        U.toast(lastScan.error ? '数据源扫描失败：' + lastScan.error
+          : '数据源中没有可配对的影像', 'err');
+        return;
+      }
+      U.clearCrsErrors(CRS_MAP);
+      /* export_shp/export_gdb 为固定占位，CRS 参数必须位于其后 */
       return A.call('start_pipeline', dataDir, outDir,
-        parseFloat(el('conf').value), parseInt(el('maxImg').value, 10) || null)
+        parseFloat(el('conf').value), parseInt(el('maxImg').value, 10) || null,
+        true, false,
+        el('carPoseCrs').value.trim() || null,
+        el('carOutCrs').value.trim() || null)
         .then(function (r) {
-          if (!r || !r.started) { U.toast((r && r.error) || '启动失败', 'err'); return; }
+          if (!r || !r.started) {
+            var msg = U.applyCrsError(r || {}, CRS_MAP) || '启动失败';
+            U.showErrBox('errBox', '提取未启动', msg);
+            U.toast((r && r.error) || '启动失败', 'err');
+            return;
+          }
           runStartTs = Date.now();
           finished = false;
           U.hideErrBox('errBox');
@@ -248,6 +267,9 @@
       A.pickDir('dataDir', '选择数据源目录').then(function (p) { if (p) scanDir(); });
     };
     el('browseOut').onclick = function () { A.pickDir('outDir', '选择输出目录'); };
+    el('browseCarOutCrs').onclick = function () {
+      A.pickFile('carOutCrs', '选择输出坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
     el('openOut1').onclick = function () { A.openDir(el('outDir').value.trim()); };
     el('openOut2').onclick = function () { A.openDir(el('outDir').value.trim()); };
     el('runBtn').onclick = run;

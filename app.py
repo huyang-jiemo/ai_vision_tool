@@ -55,7 +55,9 @@ def frozen_selftest():
     """冻结环境自检（发布验证用，正常用户不触发）：
     AVT_SELFTEST=gdb 或 --selftest=gdb 验证 GDB 导出依赖；
     =rasterio 验证正射影像读取依赖；=dom 验证标线提取；
-    =deps 验证 pyproj/geopandas/pyogrio 依赖链；=crs 输出坐标系诊断。"""
+    =deps 验证 pyproj/geopandas/pyogrio 依赖链；=crs 输出坐标系诊断
+    （AVT_SELFTEST_TIF 指定影像；未指定时合成 EPSG:3857 图；
+     AVT_SELFTEST_INPUT_CRS 可指定影像缺失 CRS 时的覆盖值）。"""
     mode = _selftest_mode()
     if not mode:
         return False
@@ -84,11 +86,12 @@ def _write_selftest_error(mode: str, tb: str) -> None:
 def _run_selftest(mode: str):
     if mode == "gdb":
         import tempfile
+        from pyproj import CRS
         from pipeline.exporter import export_points_gdb
         feats = [{"x": 500000.0, "y": 3000000.0, "class_id": "2", "class_cn": "自检",
                   "session": "S", "image": "I", "dist": 0.0, "score": 0.9}]
         p = os.path.join(tempfile.mkdtemp(prefix="avt_selftest_"), "t.gdb")
-        ok = export_points_gdb(p, "detections", feats)
+        ok = export_points_gdb(p, "detections", feats, crs=CRS.from_epsg(4547))
         print("GDB_SELFTEST:", "PASS" if ok and os.path.exists(p) else "FAIL")
         return True
     if mode == "rasterio":
@@ -113,26 +116,30 @@ def _run_selftest(mode: str):
             import geopandas
             import pyogrio
             from pyproj import CRS
-            from pipeline import coords
-            from pipeline.config import WUHAN_CGCS2000_GK_WKT
-            from pipeline.dom_extractor import LOCAL_PROJ4
+            from pipeline import coords, crs_plan
             crs = CRS.from_epsg(3857)
             gdf = geopandas.GeoDataFrame({"a": [1]}, geometry=geopandas.points_from_xy([0], [0]),
                                          crs=crs)
             ok = gdf.crs is not None and gdf.crs.to_epsg() == 3857
-            local = CRS.from_proj4(LOCAL_PROJ4)
+            # 任意基准的局部 TM ↔ Web Mercator 往返（不依赖任何写死的本地坐标）
+            local = crs_plan.local_tm_crs(CRS.from_epsg(4326), 114.3)
             fwd = coords.build_transformer(local, crs)
             back = coords.build_transformer(crs, local)
             x, y = back.transform(*fwd.transform(800000.0, 385000.0))
             ok_tf = abs(x - 800000.0) < 1e-3 and abs(y - 385000.0) < 1e-3
-            # 工具自有 WKT 与本地 TM 为同一投影：应识别为「无需转换」
-            ok_same = coords.build_transformer(
-                CRS.from_user_input(WUHAN_CGCS2000_GK_WKT), local) is None
-            ok = ok and ok_tf and ok_same
+            # 同 CRS 应识别为「无需转换」
+            ok_same = coords.build_transformer(CRS.from_epsg(4326),
+                                               CRS.from_epsg(4326)) is None
+            # working 选择：3857 尺度偏大 → 局部 TM；4547 尺度/收敛角合格 → 直接用目标
+            _w1, r1 = crs_plan.working_crs_for(crs, 114.3, 30.6)
+            _w2, r2 = crs_plan.working_crs_for(CRS.from_epsg(4547), 114.3, 30.6)
+            ok_work = (r1 == "local_tm" and r2 == "target")
+            ok = ok and ok_tf and ok_same and ok_work
             print("DEPS_SELFTEST:", "PASS" if ok else "FAIL",
                   f"(gpd={geopandas.__version__}, pyogrio={pyogrio.__version__}, "
                   f"转换往返={'OK' if ok_tf else 'FAIL'}, "
                   f"同投影识别={'OK' if ok_same else 'FAIL'}, "
+                  f"工作系选择={'OK' if ok_work else 'FAIL'}, "
                   f"{coords.runtime_info()})")
         except Exception as e:
             print("DEPS_SELFTEST: FAIL", type(e).__name__, e)
@@ -160,11 +167,10 @@ def _run_selftest(mode: str):
         try:
             lines.append("stage=start")
             flush()
-            from pyproj import CRS
-            lines.append("stage=pyproj ok")
+            import pyproj
+            lines.append(f"stage=pyproj ok ({pyproj.__version__})")
             flush()
-            from pipeline import coords
-            from pipeline.dom_extractor import LOCAL_PROJ4
+            from pipeline import coords, crs_plan
             lines.append("stage=pipeline ok")
             flush()
             import rasterio
@@ -172,30 +178,72 @@ def _run_selftest(mode: str):
             lines.append(coords.runtime_info())
             flush()
             src_input = os.environ.get("AVT_SELFTEST_TIF", "")
+            input_crs = os.environ.get("AVT_SELFTEST_INPUT_CRS", "").strip() or None
             tif, tip = Api._resolve_dom_tif(src_input)
             lines.append(f"影像选择：{tif or '未找到'} {tip}".rstrip())
+            if not tif:
+                # CI/客户机器通常没有现成 TIF：合成一张带 CRS 的小图，
+                # 让自检真正覆盖 rasterio 读取 → CRS 解析 → 工作系选择 → 往返转换。
+                try:
+                    import numpy as np
+                    from rasterio.transform import from_origin
+                    synth_dir = tempfile.mkdtemp(prefix="avt_crs_")
+                    tif = os.path.join(synth_dir, "synthetic.tif")
+                    with rasterio.open(
+                            tif, "w", driver="GTiff", height=32, width=32, count=1,
+                            dtype="uint8", crs="EPSG:3857",
+                            transform=from_origin(12730000, 3577000, 0.1, 0.1)) as sds:
+                        sds.write(np.zeros((1, 32, 32), dtype="uint8"))
+                    lines.append("未提供 AVT_SELFTEST_TIF，使用合成 EPSG:3857 影像")
+                    flush()
+                except Exception as e:
+                    tif = None
+                    lines.append(f"合成影像失败：{e}")
             if tif:
                 with rasterio.open(tif) as dom:
                     lines.append(f"尺寸={dom.width}x{dom.height} 波段={dom.count}")
                     lines.append(f"范围={tuple(round(v, 2) for v in dom.bounds)}")
-                    lines.append(f"坐标系={dom.crs}")
-                    src = (CRS.from_user_input(dom.crs) if dom.crs
-                           else CRS.from_epsg(3857))
-                    local = CRS.from_proj4(LOCAL_PROJ4)
-                    lines.append(f"坐标系类型={coords.describe(src)}")
-                    src, note = coords.resolve_source_crs(
-                        src, dom.bounds, coords.dataset_esri_wkt(dom))
-                    if note:
-                        lines.append(f"坐标系修复={note}")
-                        lines.append(f"处理后坐标系={coords.describe(src)}")
-                    lines.append(f"与本地 TM 同投影={coords.same_projection(src, local)}")
+                    lines.append(f"文件 CRS={dom.crs}")
+                    esri = coords.dataset_esri_wkt(dom)
+                    lines.append(f"ESRI PE String={'有' if esri else '无'}")
                     try:
-                        tf = coords.build_transformer(src, local)
-                        lines.append("转换=" + ("无需转换" if tf is None else "可建立"))
-                    except Exception as e:
-                        lines.append(f"转换=失败：{e}")
-                    lines.append(
-                        f"坐标范围符合本地 TM={coords.bounds_look_like_local_tm(dom.bounds)}")
+                        src, origin, note = coords.resolve_raster_crs(
+                            dom, input_crs, field="input_crs")
+                    except coords.CRSMissingError as e:
+                        lines.append(f"坐标系=缺失：{e}")
+                        cands = coords.suggest_crs_candidates(dom.bounds)
+                        if cands:
+                            lines.append("候选=" + "、".join(
+                                f"EPSG:{c['epsg']}（{c['reason']}）" for c in cands))
+                        src = None
+                    if src is not None:
+                        lines.append(f"坐标系={coords.describe(src)} 来源={origin}")
+                        if note:
+                            lines.append(f"说明={note}")
+                        plan = crs_plan.plan_for_bounds(
+                            src, None, dom.bounds, source_origin=origin)
+                        lines.append(
+                            f"工作坐标系={coords.crs_label(plan.working_crs)} "
+                            f"原因={plan.working_reason}")
+                        lines.append(f"working_reason={plan.working_reason}")
+                        try:
+                            tf = plan.to_working()
+                            lines.append("转换=" + ("无需转换" if tf is None else "可建立"))
+                            if tf is None:
+                                lines.append("roundtrip=skip")
+                            else:
+                                left, bottom, right, top = dom.bounds
+                                cx = (left + right) / 2.0
+                                cy = (bottom + top) / 2.0
+                                wx, wy = tf.transform(cx, cy)
+                                bx, by = plan.to_source().transform(wx, wy)
+                                lines.append(f"中心往返偏差={abs(bx - cx):.6g},"
+                                             f"{abs(by - cy):.6g}")
+                                ok_rt = abs(bx - cx) <= 1e-6 and abs(by - cy) <= 1e-6
+                                lines.append("roundtrip=" + ("ok" if ok_rt else "fail"))
+                        except Exception as e:
+                            lines.append(f"转换=失败：{e}")
+                            lines.append("roundtrip=fail")
             lines.append("stage=done")
         except Exception as e:
             import traceback

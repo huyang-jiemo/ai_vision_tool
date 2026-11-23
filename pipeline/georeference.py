@@ -1,10 +1,10 @@
-"""地理参考：像素 → 武汉本地 TM 平面坐标（米）。
+"""地理参考：像素 → working CRS 平面坐标（米）。
 
-核心修正（相对原文档）：
-- 相机原点直接用 .hdi 的 col9/col10/col11（即武汉本地 TM 的 X/Y/Z），
-  无需经纬度↔投影换算，彻底规避 zone 39 / pyproj 接口错误。
+- 相机原点 pose.x/y 由 .hdi 的 col12/13 经纬度在任务开始时转换到 working CRS；
+  working 默认是以前方平均经线为中央经线的局部 TM，中心处 grid north≈true north。
 - 内参取自 config.fisheye；外参取位姿的 heading/pitch/roll。
 - 地面 z=0，相机高程 = pose.alt；射线向下与地面求交得平面坐标。
+- 本模块只负责米制平面几何；输入/输出 CRS 的转换在 processor/exporter 完成。
 """
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class GeoPoint:
-    x: float       # 武汉 TM 东坐标（米）
-    y: float       # 武汉 TM 北坐标（米）
+    x: float       # working CRS 东坐标（米）
+    y: float       # working CRS 北坐标（米）
     dist: float    # 距相机水平距离（米）
     valid: bool
 
@@ -61,7 +61,10 @@ class GeoReferencer:
         return _rot_yaw(a) @ R_BASE @ _rot_pitch(p) @ _rot_roll(r)
 
     def pixel_to_ground(self, u: float, v: float, pose: "CameraPose") -> GeoPoint:
-        """像素(u,v) → 地面 TM 坐标。无效（射线不朝下）返回 valid=False。"""
+        """像素(u,v) → 地面 working 坐标。无效（射线不朝下/位姿非法）返回 valid=False。"""
+        if not (math.isfinite(pose.x) and math.isfinite(pose.y)
+                and math.isfinite(pose.alt)):
+            return GeoPoint(pose.x, pose.y, 0.0, False)
         x_c = (u - self.cx) / self.fx
         y_c = (v - self.cy) / self.fy
         z_c = 1.0

@@ -1,7 +1,7 @@
 """Pipeline 全局配置与常量。
 
-坐标系 WKT / proj 直接取自真实参考成果 `轨迹/*东湖路.prj`，
-保证输出与参考矢量完全重合（武汉本地横墨卡托，中央经线 114°20'E）。
+坐标系不在此处定义：输入 CRS 从数据自身读取，输出默认跟随主输入，
+内部按任务范围选择米制工作坐标系，详见 pipeline/coords.py 与 crs_plan.py。
 """
 from __future__ import annotations
 
@@ -10,26 +10,6 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE_DIR / "models"
-
-# 武汉本地横墨卡托（取自参考 .prj，中央经线 114.3333333° = 114°20'E）
-WUHAN_TM_PROJ = (
-    "+proj=tmerc +lat_0=0 +lon_0=114.3333333333333 +k=1 "
-    "+x_0=800000 +y_0=-3000000 +ellps=GRS80 +units=m +no_defs +type=crs"
-)
-
-WUHAN_CGCS2000_GK_WKT = (
-    'PROJCS["WuHan_WH2000_at_11420_E_CGCS2000",'
-    'GEOGCS["GCS_WuHanCGCS2000",'
-    'DATUM["D_WuHanCGCS2000",SPHEROID["ElliCGCS2000",6378137.0,298.257222101]],'
-    'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
-    'PROJECTION["Transverse_Mercator"],'
-    'PARAMETER["false_easting",800000.0],'
-    'PARAMETER["false_northing",-3000000.0],'
-    'PARAMETER["central_meridian",114.3333333333333],'
-    'PARAMETER["scale_factor",1.0],'
-    'PARAMETER["latitude_of_origin",0.0],'
-    'UNIT["Meter",1.0]]'
-)
 
 # COCO 80 类（标准顺序，索引即类别号）
 COCO_CLASSES = [

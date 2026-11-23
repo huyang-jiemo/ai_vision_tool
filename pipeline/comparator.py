@@ -6,8 +6,9 @@
 - 面（面状标线）：IoU ≥ 0.5 匹配；相交但 IoU < 0.5 判为"改动"
 - 点（标志/设施）：3m 内最近邻一对一贪心匹配
 
-输出：变化 GDB（chg_new_* / chg_missing_* / chg_modified_*，按几何类型分图层）、
-SHP 同步、JSON 报告、叠加渲染预览图。坐标系与存量一致（武汉本地 TM）。
+坐标系：新成果与存量逐层读取真实 CRS，统一转到米制工作坐标系后匹配；
+输出默认跟随新成果（要素最多的图层），可用 output_crs 覆盖。DOM 仅作预览底图，
+其 CRS 缺失且未指定 dom_crs 时跳过预览，不影响比对结果。
 """
 from __future__ import annotations
 
@@ -18,8 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from . import coords
-from .config import WUHAN_CGCS2000_GK_WKT
-from .dom_extractor import LOCAL_PROJ4
+from .crs_plan import make_plan
 
 GEOM_KIND = {"LineString": "lines", "MultiLineString": "lines",
              "Polygon": "areas", "MultiPolygon": "areas",
@@ -29,23 +29,28 @@ CN = {"new": "新增", "missing": "缺失", "modified": "改动"}
 
 
 class Comparator:
-    def __init__(self, line_buf=1.5, angle_deg=25.0, point_dist=3.0,
-                 iou_match=0.5, mod_mid_off=2.0, mod_len_ratio=(0.5, 2.0)):
+    def __init__(self, line_buf=1.5, point_dist=3.0, iou_match=0.5):
         self.line_buf = line_buf
-        self.cos_min = float(np.cos(np.radians(angle_deg)))
         self.point_dist = point_dist
         self.iou_match = iou_match
-        self.mod_mid_off = mod_mid_off
-        self.mod_len_ratio = mod_len_ratio
 
     # ---------- 读取 ----------
-    def _load_layers(self, path):
+    def _load_layers(self, path, override=None, *, field="input_crs"):
+        """返回 ({kind: [(layer, GeoSeries)]}, GdbCRS)。
+
+        图层 CRS 逐层从文件读取；缺失层用 override 修复，仍缺失则抛错。
+        GeoSeries 保留真实 CRS（尚未转工作系）。
+        """
         import geopandas as gpd
         import pyogrio
         import shapely
+        info = coords.inspect_gdb_crs(path, override, field=field)
         out = {"lines": [], "areas": [], "points": []}  # [(layer_name, geoseries)]
-        for name, geom_type in pyogrio.list_layers(path):
+        for name, _geom_type in pyogrio.list_layers(path):
             if name.startswith("~") or name.endswith(".xlsx"):
+                continue
+            layer_crs = info.per_layer.get(name)
+            if layer_crs is None:
                 continue
             try:
                 g = gpd.read_file(path, layer=name)
@@ -60,8 +65,23 @@ class Comparator:
                 continue
             kind = GEOM_KIND.get(parts[0].geom_type)
             if kind:
-                out[kind].append((name, gpd.GeoSeries(parts, crs=g.crs)))
-        return out
+                out[kind].append((name, gpd.GeoSeries(parts, crs=layer_crs)))
+        return out, info
+
+    @staticmethod
+    def _layers_to_working(layers, working_crs):
+        """逐层转到工作 CRS；失败时给出图层名与原因。"""
+        conv = {"lines": [], "areas": [], "points": []}
+        for kind, items in layers.items():
+            for name, gs in items:
+                try:
+                    conv[kind].append((name, gs.to_crs(working_crs)))
+                except Exception as e:
+                    raise coords.CRSTransformError(
+                        f"图层「{name}」无法转换到工作坐标系"
+                        f"（{coords.describe(gs.crs)} → {coords.describe(working_crs)}）：{e}"
+                    ) from e
+        return conv
 
     # ---------- 匹配 ----------
     def _match_lines(self, new_g, ref_g):
@@ -185,23 +205,59 @@ class Comparator:
 
     # ---------- 主流程 ----------
     def run(self, new_gdb: str, stock_gdb: str, out_dir: str,
-            dom_tif: str | None = None, wlog=print, progress_cb=None):
+            dom_tif: str | None = None, wlog=print, progress_cb=None,
+            new_crs=None, stock_crs=None, dom_crs=None, output_crs=None):
         import geopandas as gpd
         import pandas as pd
-        import shapely
-        from shapely.geometry import box
 
         t0 = time.time()
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         wlog(f"读取新成果：{new_gdb}")
-        new_layers = self._load_layers(new_gdb)
+        new_layers, new_info = self._load_layers(new_gdb, new_crs, field="new_crs")
         wlog(f"读取存量：{stock_gdb}")
-        stock_layers = self._load_layers(stock_gdb)
+        stock_layers, stock_info = self._load_layers(stock_gdb, stock_crs, field="stock_crs")
+
+        source_crs = new_info.primary
+        target_override = coords.parse_crs(output_crs, field="output_crs")
+        target_crs = target_override if target_override is not None else source_crs
+
+        # 匹配范围中心（在目标 CRS 下取所有图层范围的并集，再转经纬度）
+        bounds_list = []
+        for layers in (new_layers, stock_layers):
+            for kind in ("lines", "areas", "points"):
+                for _name, gs in layers[kind]:
+                    if len(gs) == 0:
+                        continue
+                    bounds_list.append(coords.transform_bounds(
+                        gs.total_bounds, gs.crs, target_crs))
+        if not bounds_list:
+            raise RuntimeError("新成果与存量均无有效要素，无法比对")
+        ub = (min(b[0] for b in bounds_list), min(b[1] for b in bounds_list),
+              max(b[2] for b in bounds_list), max(b[3] for b in bounds_list))
+        lon_c, lat_c = coords.geographic_center(target_crs, ub)
+
+        plan = make_plan(
+            source_crs, target_override,
+            center_lon=lon_c, center_lat=lat_c,
+            source_origin=new_info.origin,
+            target_origin="user" if target_override is not None else "default:new")
+        wlog(f"新成果坐标系：{coords.crs_label(source_crs)}；"
+             f"存量坐标系：{coords.crs_label(stock_info.primary)}"
+             + ("（混合 CRS，逐层转换）" if stock_info.origin == "mixed" else ""))
+        wlog(f"工作坐标系：{coords.crs_label(plan.working_crs)}（{plan.working_reason}）；"
+             f"输出坐标系：{coords.crs_label(plan.target_crs)}")
+        if new_info.origin == "mixed":
+            wlog("警告：新成果图层存在多种 CRS，已逐层转换；输出默认跟随要素最多的图层"
+                 f"（{coords.crs_label(source_crs)}），可用输出坐标系覆盖。")
+
+        new_layers = self._layers_to_working(new_layers, plan.working_crs)
+        stock_layers = self._layers_to_working(stock_layers, plan.working_crs)
 
         results = {}
         changes = {"new": [], "missing": [], "modified": []}  # (kind, layer, geom, note)
-        n_kind = len([k for k in ("lines", "areas", "points") if stock_layers[k] or new_layers[k]])
+        n_kind = len([k for k in ("lines", "areas", "points")
+                      if stock_layers[k] or new_layers[k]])
         done_kind = 0
 
         for kind in ("lines", "areas", "points"):
@@ -216,8 +272,8 @@ class Comparator:
             if not new_all and not ref_all:
                 continue
             done_kind += 1
-            new_g = gpd.GeoSeries(new_all, crs=WUHAN_CGCS2000_GK_WKT) if new_all else None
-            ref_g = gpd.GeoSeries(ref_all, crs=WUHAN_CGCS2000_GK_WKT) if ref_all else None
+            new_g = gpd.GeoSeries(new_all, crs=plan.working_crs) if new_all else None
+            ref_g = gpd.GeoSeries(ref_all, crs=plan.working_crs) if ref_all else None
             if progress_cb:
                 progress_cb(done_kind, n_kind, f"比对{kind}：新{len(new_all)} 存量{len(ref_all)}")
             wlog(f"{kind}：新成果 {len(new_all)}，存量 {len(ref_all)}")
@@ -248,7 +304,7 @@ class Comparator:
                              "modified": len(modified), "matched": len(pairs)}
             wlog(f"  匹配 {len(pairs)}，新增 {len(new_only)}，缺失 {len(ref_only)}，改动 {len(modified)}")
 
-        # ---------- 写变化图层 ----------
+        # ---------- 写变化图层（工作系 → 目标 CRS） ----------
         gdb_path = out / "变化比对.gdb"
         layer_rows = {}
         for ctype in ("new", "missing", "modified"):
@@ -259,17 +315,20 @@ class Comparator:
                 layer_rows[key]["SRC"].append(src)
                 layer_rows[key]["NOTE"].append(note)
         written = []
+
+        def _out_gdf(rows):
+            return gpd.GeoDataFrame(pd.DataFrame(rows), geometry="geometry",
+                                    crs=plan.working_crs).to_crs(plan.target_crs)
+
         try:
             for key, rows in layer_rows.items():
-                gdf = gpd.GeoDataFrame(pd.DataFrame(rows), geometry="geometry",
-                                       crs=WUHAN_CGCS2000_GK_WKT)
-                gdf.to_file(str(gdb_path), layer=key, driver="OpenFileGDB")
+                _out_gdf(rows).to_file(str(gdb_path), layer=key, driver="OpenFileGDB")
                 written.append(key)
             wlog(f"变化图层已写入：{gdb_path.name}（{len(written)} 层）")
         except Exception as e:
             wlog(f"变化 GDB 写出失败：{e}")
 
-        # SHP 同步
+        # SHP 同步（与 GDB 使用同一目标 CRS）
         shp_dir = out / "shp"
         shp_files = []
         try:
@@ -280,27 +339,34 @@ class Comparator:
             else:
                 shp_dir.mkdir(parents=True, exist_ok=True)
             for key, rows in layer_rows.items():
-                gdf = gpd.GeoDataFrame(pd.DataFrame(rows), geometry="geometry",
-                                       crs=WUHAN_CGCS2000_GK_WKT)
                 p = str(shp_dir / f"{key}.shp")
-                gdf.to_file(p, encoding="utf-8")
+                _out_gdf(rows).to_file(p, encoding="utf-8")
                 shp_files.append(p)
         except Exception as e:
             wlog(f"变化 SHP 写出失败：{e}")
 
-        # 预览渲染
+        # 预览渲染（工作系几何；DOM 缺 CRS 时跳过，不阻断比对）
         preview = str(out / "比对预览.png")
         try:
             self.render(new_layers, stock_layers, changes,
                         dom_tif if dom_tif and Path(dom_tif).exists() else None,
-                        preview)
+                        preview, plan=plan, dom_crs=dom_crs, wlog=wlog)
             wlog("比对预览图已生成：比对预览.png")
+        except coords.CRSMissingError as e:
+            wlog(f"比对预览已跳过：{e}")
+            preview = ""
         except Exception as e:
             wlog(f"预览图生成失败：{e}")
             preview = ""
 
         stats = {
             "new_gdb": str(new_gdb), "stock_gdb": str(stock_gdb),
+            "crs": coords.crs_label(plan.source_crs),      # 兼容别名：主输入 CRS
+            **plan.report(),
+            "new_layers_crs": {k: coords.crs_label(v)
+                               for k, v in new_info.per_layer.items()},
+            "stock_layers_crs": {k: coords.crs_label(v)
+                                 for k, v in stock_info.per_layer.items()},
             "by_kind": results,
             "totals": {k: sum(v[k] for v in results.values()) for k in ("new", "missing", "modified", "matched")},
             "change_gdb": str(gdb_path), "change_layers": written,
@@ -315,49 +381,42 @@ class Comparator:
         return stats
 
     # ---------- 渲染 ----------
-    def render(self, new_layers, stock_layers, changes, dom_tif, out_png):
+    def render(self, new_layers, stock_layers, changes, dom_tif, out_png, *,
+               plan, dom_crs=None, wlog=print):
+        """在 working 米制下计算范围；有 DOM 时反变换到影像 CRS 叠加。"""
         import cv2
         import geopandas as gpd
         import rasterio
         import shapely
-        from pyproj import CRS
         from rasterio.enums import Resampling
         from rasterio.windows import Window, from_bounds
         from .imgio import read_rgb
-        from shapely.geometry import box
 
-        local = CRS.from_proj4(LOCAL_PROJ4)
+        working_crs = plan.working_crs
         geoms_all = []
         for ctype in ("new", "missing", "modified"):
             for kind, src, geom, note in changes[ctype]:
                 geoms_all.append(geom)
         if not geoms_all:
             raise RuntimeError("无变化要素可渲染")
-        gs = gpd.GeoSeries(geoms_all, crs=WUHAN_CGCS2000_GK_WKT)
+        gs = gpd.GeoSeries(geoms_all, crs=working_crs)
         b = gs.total_bounds
-        pad = 40
+        pad = 40.0
         minx, miny, maxx, maxy = b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad
 
+        to_src = None
         if dom_tif:
             dom = rasterio.open(dom_tif)
-            src_crs = CRS.from_user_input(dom.crs) if dom.crs else CRS.from_epsg(3857)
-            # 同投影 / 本地坐标系（坐标范围与武汉本地 TM 吻合）时不转换；
-            # 否则建立本地 TM → 影像坐标系的转换（用于裁窗与叠加）。
-            try:
-                to_src = coords.build_transformer(local, src_crs)
-            except ValueError:
-                if not coords.bounds_look_like_local_tm(dom.bounds):
-                    raise
-                to_src = None
-            if to_src is not None:
-                sx0, sy0 = to_src.transform(minx, miny)
-                sx1, sy1 = to_src.transform(maxx, maxy)
-            else:
-                sx0, sy0, sx1, sy1 = minx, miny, maxx, maxy
-            win = from_bounds(min(sx0, sx1), min(sy0, sy1), max(sx0, sx1), max(sy0, sy1),
-                              dom.transform).round_offsets().round_lengths()
-            # 变化点靠近影像边缘时，外扩 40m 后的窗口会越界；rasterio 默认
-            # boundless=False 会直接报错，先裁剪到影像范围
+            src_crs, src_origin, src_note = coords.resolve_raster_crs(
+                dom, dom_crs, field="dom_crs")
+            if src_origin != "file" or src_note:
+                wlog(f"比对底图坐标系：{coords.crs_label(src_crs)}"
+                     + (f"（{src_note}）" if src_note else ""))
+            to_src = coords.build_transformer(working_crs, src_crs, field="dom_crs")
+            sb = coords.transform_bounds((minx, miny, maxx, maxy),
+                                         working_crs, src_crs)
+            win = from_bounds(*sb, dom.transform).round_offsets().round_lengths()
+            # 变化点靠近影像边缘时，外扩后的窗口会越界；先裁剪到影像范围
             col0 = max(0, int(round(win.col_off)))
             row0 = max(0, int(round(win.row_off)))
             col1 = min(int(dom.width), int(round(win.col_off + win.width)))
@@ -381,7 +440,7 @@ class Comparator:
                 c, r = inv * (x, y)
                 return c / scale, r / scale
         else:
-            W, H = 1600, int(1600 * (maxy - miny) / max(maxx - minx, 1e-6))
+            W, H = 1600, max(1, int(1600 * (maxy - miny) / max(maxx - minx, 1e-6)))
             img = np.full((H, W, 3), 245, np.uint8)
 
             def w2p(x, y):
@@ -412,3 +471,4 @@ class Comparator:
         from .imgio import imwrite_unicode
         if not imwrite_unicode(out_png, img):
             raise RuntimeError("PNG 编码失败")
+        return out_png

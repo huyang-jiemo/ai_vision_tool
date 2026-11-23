@@ -538,3 +538,23 @@
   margin: 0; border: 0; border-radius: 0;
   user-select: none; -webkit-user-drag: none; pointer-events: none;
 }
+
+/* ============================================================
+   坐标系高级区 / 字段错误态
+   ============================================================ */
+.crs-adv {
+  flex: 1 1 100%; min-width: 0;
+  border-top: 1px dashed var(--line); padding-top: var(--sp-2);
+}
+.crs-adv > summary {
+  cursor: pointer; width: fit-content;
+  font-size: var(--fs-sm); font-weight: var(--fw-m); color: var(--ink-2);
+  user-select: none;
+}
+.crs-adv > summary:hover { color: var(--ink-1); }
+.crs-adv[open] > summary { color: var(--ink-1); }
+.crs-adv__hint { margin: 2px 0 var(--sp-2); }
+.inp.is-err {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}

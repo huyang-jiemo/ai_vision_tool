@@ -17,6 +17,13 @@
   var KINDS = [['lines', '标线'], ['areas', '面状标线'], ['points', '点要素']];
   var EMPTY_TIP = '尚未运行';
   var EMPTY_ICON = '<path d="M9 3H4v18h5M15 3h5v18h-5M12 7v10"/>';
+  var CRS_MAP = {
+    new_crs: 'cmpNewCrs', stock_crs: 'cmpStockCrs', dom_crs: 'cmpDomCrs',
+    output_crs: 'cmpOutCrs', new_gdb: 'cmpNew', stock_gdb: 'cmpStock'
+  };
+  function errHtml(msg) {
+    return '<p class="hint hint--err">' + U.esc(msg).replace(/\n/g, '<br>') + '</p>';
+  }
 
   var log = null, syncReady = null, pollTimer = null;
   var lastCmpOut = '', finished = false;
@@ -55,6 +62,8 @@
         '<td class="c-num col-opt"><span class="u-num">' + v.modified + '</span></td></tr>';
     });
     html += '</tbody></table></div>';
+    var cl = U.crsLine(r);
+    if (cl) html += '<p class="hint">' + U.esc(cl) + ' · 匹配阈值按米计算</p>';
 
     if (r.change_gdb) {
       var outDir = String(r.change_gdb).replace(/[\\/]变化比对\.gdb$/, '');
@@ -87,7 +96,8 @@
       finished = false;
       U.setChip(el('cmpChip'), CHIP, 'fail');
       U.setPath('cmpResPath', '');
-      el('cmpResult').innerHTML = '<p class="hint hint--err">失败：' + U.esc(s.error || '') + '</p>';
+      var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
+      el('cmpResult').innerHTML = errHtml('失败：' + msg);
       el('cmpPrev').innerHTML = U.emptyHtml(EMPTY_ICON, '比对失败，无预览图');
     } else if (s.state === 'done') {
       finished = true;
@@ -134,9 +144,19 @@
     var ng = el('cmpNew').value.trim(), sg = el('cmpStock').value.trim();
     if (!ng) { U.toast('请选择新成果 GDB', 'err'); return; }
     if (!sg) { U.toast('请选择存量 GDB', 'err'); return; }
-    A.call('start_compare', ng, sg, el('cmpTif').value.trim() || null)
+    U.clearCrsErrors(CRS_MAP);
+    A.call('start_compare', ng, sg, el('cmpTif').value.trim() || null,
+      el('cmpNewCrs').value.trim() || null,
+      el('cmpStockCrs').value.trim() || null,
+      el('cmpDomCrs').value.trim() || null,
+      el('cmpOutCrs').value.trim() || null)
       .then(function (r) {
-        if (!r || !r.started) { U.toast((r && r.error) || '启动失败', 'err'); return; }
+        if (!r || !r.started) {
+          var msg = U.applyCrsError(r || {}, CRS_MAP) || '启动失败';
+          el('cmpResult').innerHTML = errHtml(msg);
+          U.toast((r && r.error) || '启动失败', 'err');
+          return;
+        }
         if (r.output_dir) lastCmpOut = r.output_dir;
         finished = false;
         U.setChip(el('cmpChip'), CHIP, 'run');
@@ -154,6 +174,18 @@
     el('browseCmpNew').onclick = function () { A.pickDir('cmpNew', '选择新成果 GDB 目录'); };
     el('browseCmpStock').onclick = function () { A.pickDir('cmpStock', '选择存量 GDB 目录'); };
     el('browseCmpTif').onclick = function () { A.pickFile('cmpTif', '选择底图 TIF', ['.tif', '.tiff']); };
+    el('browseCmpNewCrs').onclick = function () {
+      A.pickFile('cmpNewCrs', '选择新成果坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
+    el('browseCmpStockCrs').onclick = function () {
+      A.pickFile('cmpStockCrs', '选择存量坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
+    el('browseCmpDomCrs').onclick = function () {
+      A.pickFile('cmpDomCrs', '选择底图坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
+    el('browseCmpOutCrs').onclick = function () {
+      A.pickFile('cmpOutCrs', '选择输出坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
     el('cmpOpenOut').onclick = function () { A.openDir(lastCmpOut); };
     el('cmpRunBtn').onclick = run;
 

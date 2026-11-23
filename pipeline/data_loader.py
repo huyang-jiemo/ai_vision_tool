@@ -5,15 +5,16 @@
 - .hdi 21 列，列定义（0-based）已用真实数据 + 东湖路.shp 反查确认：
     col0  = 设备/序列号-时间戳 (如 00000000-01-20260327105948634)
     col2..8 = 年/月/日/时/分/秒/毫秒
-    col9  = 相机 X（武汉本地 TM 东坐标，已含 FE 800000）
-    col10 = 相机 Y（武汉本地 TM 北坐标）
+    col9  = 相机 X（采集软件给出的投影东坐标，已含假东；新流程不使用）
+    col10 = 相机 Y（采集软件给出的投影北坐标；新流程不使用）
     col11 = 相机 Z（高程，米）
-    col12 = 经度
-    col13 = 纬度
+    col12 = 经度（WGS84，度）
+    col13 = 纬度（WGS84，度）
     col14 = heading（航向，度）
     col15 = pitch（俯仰，度）
     col16 = roll（横滚，度）
 - 位姿 71+78=149 条，与 149 张图按期次 1:1 对应（非文档说的取 min=78）
+- 车载链路以 col12/13 经纬度为准；col9/10 保留仅用于排障对比。
 """
 from __future__ import annotations
 
@@ -37,9 +38,9 @@ class CameraPose:
     heading: float
     pitch: float
     roll: float
-    x: float      # 武汉 TM 东坐标
-    y: float      # 武汉 TM 北坐标
-    z: float      # 高程
+    x: float      # 由经纬度转换得到的 working CRS 东坐标（米）
+    y: float      # 由经纬度转换得到的 working CRS 北坐标（米）
+    z: float      # 高程（米）
 
 
 @dataclass
@@ -61,26 +62,105 @@ def _parse_ts(col0: str) -> datetime | None:
         return None
 
 
+class PoseDataError(ValueError):
+    """HDI 位姿数据非法：坐标/姿态缺失或越界。"""
+
+    code = "POSE_COORDINATES_INVALID"
+
+    def __init__(self, message: str, *, line: int | None = None):
+        super().__init__(message)
+        self.line = line
+
+
 def _load_hdi(path: Path):
-    """返回按行解析的 CameraPose 列表（与影像按期次内顺序 1:1）。"""
+    """返回按行解析的 CameraPose 列表（与影像按期次内顺序 1:1）。
+
+    只有少于 21 列的行（表头/说明行）会被跳过；21 列数据的经纬度、高程或
+    姿态非法时直接报错，避免静默丢行导致影像与位姿错位。
+    """
+    import math
     poses = []
-    for i, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for i, line in enumerate(text.splitlines(), start=1):
         c = line.split("\t")
         if len(c) < 21:
             continue
         try:
-            pose = CameraPose(
-                session="", index=i,
-                image_filename="", timestamp=_parse_ts(c[0]),
-                lon=float(c[12]), lat=float(c[13]),
-                alt=float(c[11]), heading=float(c[14]),
-                pitch=float(c[15]), roll=float(c[16]),
-                x=float(c[9]), y=float(c[10]), z=float(c[11]),
-            )
+            lon, lat = float(c[12]), float(c[13])
+            alt, heading = float(c[11]), float(c[14])
+            pitch, roll = float(c[15]), float(c[16])
+        except (ValueError, IndexError) as e:
+            raise PoseDataError(
+                f"位姿文件「{path.name}」第 {i} 行坐标/姿态不是有效数字：{e}",
+                line=i) from e
+        if not all(math.isfinite(v) for v in (lon, lat, alt, heading, pitch, roll)):
+            raise PoseDataError(
+                f"位姿文件「{path.name}」第 {i} 行包含非有限值。", line=i)
+        if not (-180.0 <= lon <= 180.0 and -90.0 <= lat <= 90.0):
+            raise PoseDataError(
+                f"位姿文件「{path.name}」第 {i} 行经纬度越界：lon={lon}, lat={lat}。",
+                line=i)
+        # col9/10 是采集软件给出的投影坐标；新流程不再依赖它，解析失败也不影响。
+        try:
+            x, y = float(c[9]), float(c[10])
         except (ValueError, IndexError):
-            continue
-        poses.append(pose)
+            x, y = 0.0, 0.0
+        poses.append(CameraPose(
+            session="", index=i, image_filename="", timestamp=_parse_ts(c[0]),
+            lon=lon, lat=lat, alt=alt, heading=heading, pitch=pitch, roll=roll,
+            x=x, y=y, z=alt,
+        ))
+    if not poses:
+        raise PoseDataError(f"位姿文件「{path.name}」没有可用的 21 列数据行。")
     return poses
+
+
+def validate_pose_coordinates(poses):
+    """校验经纬度并返回 (min_lon, min_lat, max_lon, max_lat)。"""
+    import math
+    if not poses:
+        raise PoseDataError("没有可用的位姿数据。")
+    lons, lats = [], []
+    for p in poses:
+        if not math.isfinite(p.lon) or not math.isfinite(p.lat):
+            raise PoseDataError(f"位姿 {p.session}/{p.image_filename} 经纬度非有限值。")
+        if not (-180.0 <= p.lon <= 180.0 and -90.0 <= p.lat <= 90.0):
+            raise PoseDataError(
+                f"位姿 {p.session}/{p.image_filename} 经纬度越界："
+                f"lon={p.lon}, lat={p.lat}。")
+        lons.append(float(p.lon))
+        lats.append(float(p.lat))
+    return (min(lons), min(lats), max(lons), max(lats))
+
+
+def prepare_poses(poses, pose_crs, working_crs) -> None:
+    """把位姿经纬度批量转换到 working_crs，写入 pose.x/pose.y（米）。"""
+    if not poses:
+        return
+    from . import coords
+    lon = [float(p.lon) for p in poses]
+    lat = [float(p.lat) for p in poses]
+    tf = coords.build_transformer(pose_crs, working_crs, field="pose_crs")
+    if tf is None:
+        # 同一 CRS：按经纬度列即平面坐标处理（车载正常流程不会走到这里，
+        # 因为 working 始终是局部 TM）
+        for p in poses:
+            p.x, p.y = float(p.lon), float(p.lat)
+        return
+    try:
+        xs, ys = tf.transform(lon, lat)
+    except Exception as e:
+        raise coords.CRSTransformError(
+            f"无法把位姿经纬度从「{coords.describe(pose_crs)}」转换到"
+            f"工作坐标系「{coords.describe(working_crs)}」：{e}",
+            field="pose_crs") from e
+    import math
+    for p, x, y in zip(poses, xs, ys):
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise coords.CRSTransformError(
+                f"位姿 {p.session}/{p.image_filename} 转换后坐标非有限值。",
+                field="pose_crs")
+        p.x, p.y = float(x), float(y)
 
 
 @dataclass

@@ -1,131 +1,257 @@
-"""坐标系工具：同投影判断、Transformer 构建与可读诊断。
+"""坐标系工具：解析、校验、转换与诊断。
 
-背景：`pyproj.Transformer.from_crs` 在 `proj_create_crs_to_crs` 返回空时只抛
-通用文案 `Error creating Transformer from CRS.`，看不出真实原因。正射提取在
-真机上报该错时，实测对应两类影像：
-
-1. 影像使用本地/未定义坐标系（GeoTIFF 只有 LOCAL_CS，PROJ 中为 Engineering
-   CRS），PROJ 无法在它与武汉本地 TM 之间建立任何转换；
-2. 影像本来就是武汉本地 TM，但 datum 名称不同导致 `CRS.equals()` 为 False，
-   本不需要转换却走进了转换链路；
-3. ArcGIS 导出的部分 GeoTIFF 只保留坐标系名称（如
-   WGS_1984_Web_Mercator_Auxiliary_Sphere）、投影参数丢失，GDAL 退化为
-   Engineering CRS；按 ESRI PE String 或名称 + 坐标范围恢复为 EPSG:3857。
-
-本模块统一这些判断，保证：同投影直接跳过转换；本地坐标系且坐标范围与武汉
-本地 TM 吻合时按源坐标处理并告警；能恢复的 Web Mercator 先恢复再转换；
-其余情况给出可执行的中文错误。
+约定：三条管线的输入 CRS 一律从数据自身读取；缺失或损坏时抛出
+``CRSMissingError``，由界面要求用户填写 EPSG/WKT（或 .prj 路径），不猜测。
+输出 CRS 默认跟随主输入，可在任务参数中显式覆盖。
 """
 from __future__ import annotations
 
-# 武汉本地 TM（x_0=800000, y_0=-3000000）的合理坐标区间，覆盖武汉全域并留余量。
-# 实测：114.0°E/30.3°N → (767935, 353417)，114.6°E/30.9°N → (825494, 419918)。
-LOCAL_TM_X_RANGE = (6.0e5, 1.0e6)
-LOCAL_TM_Y_RANGE = (2.0e5, 6.0e5)
+import os
+from dataclasses import dataclass, field as dataclass_field
+from pathlib import Path
 
-# 横轴墨卡托参数（缺省值按 PROJ 约定：lat_0=0, k=1, x_0=y_0=0）
-_TM_PARAMS = {"lat_0": 0.0, "lon_0": 0.0, "k": 1.0, "x_0": 0.0, "y_0": 0.0}
+# ------------------------------------------------------------------ 错误类型
+
+
+class CRSError(ValueError):
+    """坐标系相关错误的基类：携带错误码与界面字段名。"""
+
+    code = "CRS_ERROR"
+
+    def __init__(self, message: str, *, field: str | None = None,
+                 hint: str = "", detail: str = ""):
+        super().__init__(message)
+        self.field = field
+        self.hint = hint
+        self.detail = detail
+
+    def to_dict(self) -> dict:
+        return {"error": str(self), "error_code": self.code,
+                "crs_field": self.field, "hint": self.hint}
+
+
+class CRSMissingError(CRSError):
+    """输入缺少或损坏坐标系，需要用户显式指定。"""
+
+    code = "CRS_REQUIRED"
+
+
+class CRSInvalidError(CRSError):
+    """用户提供的坐标系无法解析或类型不受支持。"""
+
+    code = "CRS_INVALID"
+
+
+class CRSTransformError(CRSError):
+    """两个 CRS 之间无法建立转换。"""
+
+    code = "CRS_TRANSFORM_FAILED"
+
+
+# ------------------------------------------------------------------ 基础工具
 
 
 def describe(crs) -> str:
     """人类可读的坐标系描述，如「WuHan_WH2000（Projected CRS）」。"""
+    if crs is None:
+        return "未定义"
     try:
         return f"{crs.name or '未命名'}（{crs.type_name}）"
     except Exception:
         return "未知坐标系"
 
 
-def same_projection(a, b) -> bool:
-    """两个投影坐标系的方法与参数是否完全一致（忽略 datum 名称差异）。
+def crs_label(crs) -> str:
+    """短标签：优先 EPSG 代码，其次名称；局部 TM 显示中央经线。"""
+    if crs is None:
+        return "未指定"
+    try:
+        epsg = crs.to_epsg()
+        name = (crs.name or "").strip()
+        if epsg:
+            return f"EPSG:{epsg}（{name}）" if name else f"EPSG:{epsg}"
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                # pyproj 从 WKT 转 PROJ 参数时会提示信息损失；此处仅取中央经线
+                warnings.simplefilter("ignore")
+                d = crs.to_dict()
+            if d.get("proj") == "tmerc" and d.get("lon_0") is not None:
+                return f"局部 TM（中央经线 {float(d['lon_0']):.6f}°）"
+        except Exception:
+            pass
+        if name and name.lower() not in ("unknown", "unnamed"):
+            return name
+        return "自定义坐标系"
+    except Exception:
+        return "未知坐标系"
 
-    与 `CRS.equals()` 的区别：WKT 与 Proj4 描述的同一投影，datum 名称不同会
-    让 equals() 判 False，但坐标数值完全一致，无需转换。
+
+def _as_crs(value):
+    from pyproj import CRS
+    return value if isinstance(value, CRS) else CRS.from_user_input(value)
+
+
+def usable_crs(crs) -> bool:
+    """是否为可用于水平坐标转换的 2D CRS（排除工程/地心坐标系）。"""
+    if crs is None:
+        return False
+    try:
+        return not crs.is_engineering and not crs.is_geocentric
+    except Exception:
+        return False
+
+
+def horizontal_crs(crs):
+    """取 2D 水平分量；compound 取第一个水平子 CRS。"""
+    c = _as_crs(crs)
+    try:
+        if c.is_compound:
+            for sub in c.sub_crs_list:
+                if sub.is_projected or sub.is_geographic:
+                    return sub
+            raise CRSInvalidError(
+                f"坐标系「{c.name or c}」不包含可用的水平分量。",
+                hint="请提供 2D 地理坐标系（如 EPSG:4326）或投影坐标系。")
+        if c.is_geocentric:
+            raise CRSInvalidError(
+                f"不支持地心坐标系「{c.name or c}」。",
+                hint="请提供 2D 地理坐标系或投影坐标系。")
+        if c.is_engineering:
+            raise CRSInvalidError(
+                f"不支持工程坐标系「{c.name or c}」。",
+                hint="请提供 2D 地理坐标系或投影坐标系。")
+    except CRSError:
+        raise
+    except Exception:
+        pass
+    return c
+
+
+def parse_crs(value, *, field: str = "crs", allow_none: bool = True):
+    """解析 EPSG/WKT/PROJ 字符串或 .prj/.wkt 文件路径。
+
+    空值在 ``allow_none=True`` 时返回 None；无法解析抛 ``CRSInvalidError``。
     """
+    if value is None:
+        if allow_none:
+            return None
+        raise CRSMissingError("未提供坐标系。", field=field,
+                              hint="请填写 EPSG:xxxx 或 WKT。")
+    text = str(value).strip()
+    # 资源管理器「复制为路径」会带引号
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        text = text[1:-1].strip()
+    if not text:
+        if allow_none:
+            return None
+        raise CRSMissingError("未提供坐标系。", field=field,
+                              hint="请填写 EPSG:xxxx 或 WKT。")
+    # 允许直接填 .prj/.wkt 文件路径
+    if os.path.isfile(text) and text.lower().endswith((".prj", ".wkt", ".txt")):
+        try:
+            text = Path(text).read_text(encoding="utf-8-sig", errors="replace").strip()
+        except Exception as e:
+            raise CRSInvalidError(
+                f"无法读取坐标系文件：{value}（{e}）", field=field,
+                hint="请确认文件可读，或直接填写 EPSG:xxxx / WKT。") from e
     try:
-        if not (a.is_projected and b.is_projected):
+        crs = _as_crs(text)
+    except Exception as e:
+        raise CRSInvalidError(
+            f"坐标系无法识别：{value}（{e}）", field=field,
+            hint="示例：EPSG:4547、EPSG:4326，或粘贴 WKT / .prj 路径。") from e
+    return horizontal_crs(crs)
+
+
+def is_projected_metric(crs) -> bool:
+    """是否为投影坐标系且水平单位为米。"""
+    try:
+        if crs is None or not crs.is_projected:
             return False
-        # to_dict() 内部会经 PROJ 字符串转换，WKT 会触发一条无意义的 UserWarning
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            da, db = a.to_dict(), b.to_dict()
-        if da.get("proj") != db.get("proj"):
+        axes = crs.axis_info
+        if not axes:
             return False
-        if da.get("units", "m") != db.get("units", "m"):
-            return False
-        for key, default in _TM_PARAMS.items():
-            va = float(da.get(key, default))
-            vb = float(db.get(key, default))
-            if abs(va - vb) > 1e-9 * max(1.0, abs(va), abs(vb)):
-                return False
-        ea, eb = a.ellipsoid, b.ellipsoid
-        if abs(ea.semi_major_metre - eb.semi_major_metre) > 1e-3:
-            return False
-        if abs(ea.inverse_flattening - eb.inverse_flattening) > 1e-6:
-            return False
-        # 任一侧带非零基准面偏移时不能跳过转换
-        for d in (da, db):
-            tw = d.get("towgs84") or []
-            if any(abs(float(x)) > 1e-9 for x in tw):
-                return False
-        # 网格改正 / 中央子午线不同时同样不能跳过（宁可多建一次 Transformer）
-        for key in ("nadgrids", "geoidgrids", "pm"):
-            if (da.get(key) or db.get(key)) and da.get(key) != db.get(key):
-                return False
-        return True
+        factor = float(axes[0].unit_conversion_factor)
+        return abs(factor - 1.0) <= 1e-9
     except Exception:
         return False
 
 
-def bounds_look_like_local_tm(bounds) -> bool:
-    """坐标范围中心是否落在武汉本地 TM 的合理区间。"""
+def build_transformer(src_crs, dst_crs, *, field: str | None = None):
+    """同 CRS 返回 None，否则返回 always_xy 的 pyproj Transformer。"""
+    if src_crs is None or dst_crs is None:
+        return None
+    src = _as_crs(src_crs)
+    dst = _as_crs(dst_crs)
     try:
-        left, bottom, right, top = bounds
-        cx = (float(left) + float(right)) / 2.0
-        cy = (float(bottom) + float(top)) / 2.0
-        return (LOCAL_TM_X_RANGE[0] <= cx <= LOCAL_TM_X_RANGE[1]
-                and LOCAL_TM_Y_RANGE[0] <= cy <= LOCAL_TM_Y_RANGE[1])
+        if src.equals(dst, ignore_axis_order=True):
+            return None
     except Exception:
-        return False
-
-
-# Web Mercator（EPSG:3857）的米制范围与常见 ESRI 名称。ArcGIS 导出的部分
-# GeoTIFF 只保留坐标系名称、丢失投影参数，GDAL 会退化成 Engineering CRS；
-# 名称与坐标范围同时吻合时按 EPSG:3857 处理。
-WEB_MERCATOR_EPSG = 3857
-_WEB_MERCATOR_MAX = 20037508.342789244
-
-
-def _looks_like_web_mercator_name(name: str) -> bool:
-    n = (name or "").lower()
-    return ("web_mercator" in n or "web mercator" in n
-            or "pseudo-mercator" in n or "pseudomercator" in n
-            or "auxiliary_sphere" in n)
-
-
-def bounds_look_like_web_mercator(bounds) -> bool:
-    """坐标范围是否符合 Web Mercator 米制坐标。
-
-    国内 Web Mercator 的 X 约 8.4e6~1.5e7，与武汉本地 TM（X≈8e5）量级明显
-    不同；要求 X 中心绝对值超过 1e6，可排除本地 TM 与普通局部坐标。
-    """
+        pass
+    from pyproj import Transformer
     try:
-        left, bottom, right, top = (float(v) for v in bounds)
-        if any(abs(v) > _WEB_MERCATOR_MAX for v in (left, bottom, right, top)):
-            return False
-        cx = (left + right) / 2.0
-        cy = (bottom + top) / 2.0
-        return abs(cx) > 1.0e6 and abs(cy) < _WEB_MERCATOR_MAX
+        return Transformer.from_crs(src, dst, always_xy=True)
+    except Exception as e:
+        raise CRSTransformError(
+            f"无法在「{describe(src)}」与「{describe(dst)}」之间建立坐标转换"
+            f"（{e}）", field=field, detail=str(e)) from e
+
+
+def transform_bounds(bounds, src_crs, dst_crs, densify_pts: int = 21):
+    """把边界框从 src 转到 dst；四边密度化后取包络。"""
+    left, bottom, right, top = (float(v) for v in bounds)
+    if src_crs is None or dst_crs is None:
+        return (left, bottom, right, top)
+    src = _as_crs(src_crs)
+    dst = _as_crs(dst_crs)
+    try:
+        if src.equals(dst, ignore_axis_order=True):
+            return (left, bottom, right, top)
     except Exception:
-        return False
+        pass
+    tf = build_transformer(src, dst)
+    if tf is None:
+        return (left, bottom, right, top)
+    xs: list[float] = []
+    ys: list[float] = []
+    n = max(2, int(densify_pts))
+    for i in range(n):
+        f = i / (n - 1)
+        px = left + (right - left) * f
+        py = bottom + (top - bottom) * f
+        for x, y in ((px, bottom), (px, top), (left, py), (right, py)):
+            try:
+                xx, yy = tf.transform(x, y)
+            except Exception:
+                continue
+            if xx == xx and yy == yy and abs(xx) != float("inf") and abs(yy) != float("inf"):
+                xs.append(float(xx))
+                ys.append(float(yy))
+    if not xs:
+        raise CRSTransformError(
+            f"无法把范围 {bounds} 从「{describe(src)}」转换到「{describe(dst)}」。")
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def geographic_center(crs, bounds) -> tuple[float, float]:
+    """数据范围中心 → WGS84 经纬度。"""
+    left, bottom, right, top = (float(v) for v in bounds)
+    cx, cy = (left + right) / 2.0, (bottom + top) / 2.0
+    c = _as_crs(crs)
+    if c.is_geographic:
+        return cx, cy
+    from pyproj import Transformer
+    tf = Transformer.from_crs(c, "EPSG:4326", always_xy=True)
+    lon, lat = tf.transform(cx, cy)
+    return float(lon), float(lat)
+
+
+# ------------------------------------------------------- GeoTIFF 元数据恢复
 
 
 def dataset_esri_wkt(ds) -> str:
-    """读取 GeoTIFF 中 ArcGIS 写入的 ESRI PE String（完整投影 WKT）。
-
-    GDAL 通常会据此还原投影；个别导出文件只剩坐标系名称，导致 CRS 退化为
-    Engineering CRS。这里直接读原始元数据做兜底。
-    """
+    """读取 GeoTIFF 中 ArcGIS 写入的 ESRI PE String（完整投影 WKT）。"""
     for ns in (None, "xml:ESRI", "ESRI"):
         try:
             tags = ds.tags(ns=ns) if ns else ds.tags()
@@ -143,58 +269,167 @@ def dataset_esri_wkt(ds) -> str:
     return ""
 
 
-def resolve_source_crs(src_crs, bounds, metadata_wkt: str = ""):
-    """把影像坐标系规整为可用于转换的 CRS，返回 (CRS, 说明)。
+def suggest_crs_candidates(bounds) -> list[dict]:
+    """根据坐标范围给出可能的 CRS，仅用于错误提示，不自动应用。"""
+    try:
+        left, bottom, right, top = (float(v) for v in bounds)
+    except Exception:
+        return []
+    out: list[dict] = []
+    if (all(-180.0 <= v <= 180.0 for v in (left, right))
+            and all(-90.0 <= v <= 90.0 for v in (bottom, top))):
+        out.append({"epsg": 4326, "label": "WGS 84",
+                    "reason": "坐标范围符合经纬度（度）"})
+    if (all(abs(v) <= 20037508.342789244 for v in (left, bottom, right, top))
+            and abs((left + right) / 2.0) > 1.0e6):
+        out.append({"epsg": 3857, "label": "WGS 84 / Pseudo-Mercator",
+                    "reason": "坐标范围符合 Web Mercator（米）"})
+    return out
 
-    ArcGIS 导出的部分 GeoTIFF 只保留坐标系名称、投影参数丢失，GDAL 会将其
-    识别为 Engineering CRS，PROJ 无法建立到武汉本地 TM 的转换。恢复顺序：
-    1. 元数据中的 ESRI PE String（完整 WKT）；
-    2. 名称为 Web Mercator 且坐标范围吻合 → EPSG:3857。
-    无法恢复时原样返回，交由 build_transformer 给出明确错误。
+
+def resolve_raster_crs(ds, input_crs=None, *, field: str = "input_crs"):
+    """解析栅格 CRS；返回 (CRS, origin, note)。
+
+    顺序：用户显式值 > 文件有效 CRS > ESRI PE String > CRSMissingError。
     """
-    if src_crs is None:
-        from pyproj import CRS
-        return CRS.from_epsg(WEB_MERCATOR_EPSG), ""
-    if not getattr(src_crs, "is_engineering", False):
-        return src_crs, ""
-    if metadata_wkt:
+    from pyproj import CRS
+    user = parse_crs(input_crs, field=field)
+    raw = getattr(ds, "crs", None)
+    file_crs = None
+    if raw:
         try:
-            from pyproj import CRS
-            recovered = CRS.from_wkt(metadata_wkt)
-            if recovered.is_projected:
-                return recovered, f"已按元数据 ESRI PE String 识别为 {describe(recovered)}"
+            file_crs = CRS.from_user_input(raw)
+        except Exception:
+            file_crs = None
+    if user is not None:
+        note = ""
+        if file_crs is not None and usable_crs(file_crs):
+            note = f"用户指定的坐标系覆盖了文件自带坐标系（{describe(file_crs)}）"
+        return horizontal_crs(user), "user", note
+    if usable_crs(file_crs):
+        return horizontal_crs(file_crs), "file", ""
+    wkt = dataset_esri_wkt(ds)
+    if wkt:
+        try:
+            recovered = horizontal_crs(CRS.from_wkt(wkt))
+            return recovered, "esri_pe_string", "按文件元数据 ESRI PE String 恢复"
         except Exception:
             pass
-    if (_looks_like_web_mercator_name(getattr(src_crs, "name", ""))
-            and bounds_look_like_web_mercator(bounds)):
-        from pyproj import CRS
-        return CRS.from_epsg(WEB_MERCATOR_EPSG), \
-            "已按坐标系名称与坐标范围识别为 EPSG:3857（Web Mercator）"
-    return src_crs, ""
+    candidates = suggest_crs_candidates(getattr(ds, "bounds", None) or ())
+    hint = ""
+    if candidates:
+        hint = "根据坐标范围，可能是 " + "、".join(
+            f"EPSG:{c['epsg']}" for c in candidates) + "。"
+    raise CRSMissingError(
+        f"影像缺少有效坐标系（当前为 {describe(file_crs) if file_crs else '未定义'}）。"
+        f"请在对应坐标系输入框中填写 EPSG:xxxx 或 WKT（也可选择 .prj 文件）后重试。",
+        field=field, hint=hint,
+        detail=str(raw) if raw else "")
 
 
-def build_transformer(src_crs, dst_crs):
-    """同投影返回 None，否则返回 pyproj Transformer；失败抛 ValueError（含诊断）。"""
-    if same_projection(src_crs, dst_crs):
-        return None
-    try:
-        if src_crs.equals(dst_crs):
-            return None
-    except Exception:
-        pass
-    from pyproj import Transformer
-    try:
-        return Transformer.from_crs(src_crs, dst_crs, always_xy=True)
-    except Exception as e:
-        raise ValueError(
-            f"无法在「{describe(src_crs)}」与「{describe(dst_crs)}」之间建立坐标转换"
-            f"（{e}）") from e
+# ------------------------------------------------------------- 矢量 GDB CRS
+
+
+@dataclass
+class GdbCRS:
+    per_layer: dict = dataclass_field(default_factory=dict)
+    counts: dict = dataclass_field(default_factory=dict)
+    primary: object = None
+    distinct: list = dataclass_field(default_factory=list)
+    origin: str = "file"
+
+    def report(self) -> dict:
+        return {
+            "primary": crs_label(self.primary),
+            "layers": {k: crs_label(v) for k, v in self.per_layer.items()},
+            "distinct": [crs_label(c) for c in self.distinct],
+            "origin": self.origin,
+        }
+
+
+def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
+    """逐层读取矢量数据 CRS；缺失层用 override，仍缺失则报错。"""
+    import pyogrio
+    from pyproj import CRS
+    user = parse_crs(override, field=field)
+    per_layer: dict = {}
+    counts: dict[str, int] = {}
+    missing: list[str] = []
+    origin = "user" if user is not None else "file"
+    # 跳过非空间表（list_layers 的几何类型为 None）：它们没有 CRS，
+    # 也不参与裁剪/走廊/比对，不应因此阻断任务。
+    layers = [(n, g) for n, g in pyogrio.list_layers(path)
+              if not n.startswith("~") and not n.endswith(".xlsx") and g]
+    if not layers:
+        raise CRSMissingError(
+            f"矢量数据「{Path(path).name}」没有可读的空间图层。", field=field)
+    for name, _geom in layers:
+        crs = None
+        nfeat = 0
+        try:
+            info = pyogrio.read_info(path, layer=name)
+            nfeat = int(info.get("features") or 0)
+            raw = info.get("crs")
+            if raw:
+                crs = CRS.from_user_input(raw)
+                if not usable_crs(crs):
+                    crs = None
+        except Exception:
+            crs = None
+        if crs is None:
+            if user is not None:
+                crs = user
+            elif nfeat == 0:
+                # 空图层没有要素可处理，缺少 CRS 不应阻断任务
+                continue
+            else:
+                missing.append(name)
+                continue
+        per_layer[name] = horizontal_crs(crs)
+        counts[name] = nfeat
+    if missing and user is None:
+        names = "、".join(missing[:5]) + ("…" if len(missing) > 5 else "")
+        candidates = []
+        raise CRSMissingError(
+            f"矢量数据「{Path(path).name}」图层「{names}」缺少坐标系。"
+            f"请在对应的坐标系输入框中填写 EPSG:xxxx 或 WKT 后重试。",
+            field=field,
+            hint="可填写 EPSG:4547、EPSG:4326，或选择 .prj 文件。",
+            detail=f"layers={missing}")
+    if not per_layer:
+        raise CRSMissingError(
+            f"矢量数据「{Path(path).name}」没有带有效坐标系的图层。", field=field)
+    distinct: list = []
+    for c in per_layer.values():
+        if not any(c.equals(d, ignore_axis_order=True) for d in distinct):
+            distinct.append(c)
+    if len(distinct) > 1:
+        origin = "mixed"
+    primary_layer = max(counts, key=lambda n: counts.get(n, 0)) if counts else next(iter(per_layer))
+    return GdbCRS(per_layer=per_layer, counts=counts,
+                  primary=per_layer[primary_layer], distinct=distinct,
+                  origin=origin)
+
+
+# ---------------------------------------------------------------- WKT 写出
+
+
+def crs_to_esri_wkt(crs) -> str:
+    """写 .prj 用：优先 ESRI WKT1，失败回退 WKT1/WKT2。"""
+    c = _as_crs(crs)
+    for version in ("WKT1_ESRI", "WKT1_GDAL"):
+        try:
+            wkt = c.to_wkt(version=version, pretty=True)
+            if wkt:
+                return wkt
+        except Exception:
+            continue
+    return c.to_wkt(pretty=True)
 
 
 def runtime_info() -> str:
     """pyproj/PROJ 运行环境摘要，供排障日志使用。"""
     try:
-        import os
         import pyproj
         from pyproj import datadir
         try:

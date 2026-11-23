@@ -363,6 +363,67 @@
       '</span><span class="pathline__p" title="' + esc(path) + '">' + esc(path) + '</span></div>';
   }
 
+  /* ─────────── 坐标系错误：定位输入框并组装提示 ─────────── */
+  function clearFieldError(id) {
+    var n = el(id);
+    if (!n) return;
+    n.classList.remove('is-err');
+    n.removeAttribute('aria-invalid');
+    n.removeAttribute('title');
+  }
+  function markFieldError(id, hint) {
+    var n = el(id);
+    if (!n) return null;
+    n.classList.add('is-err');
+    n.setAttribute('aria-invalid', 'true');
+    if (hint) n.title = hint;
+    try {
+      n.focus({ preventScroll: true });
+      n.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (e) {
+      try { n.focus(); } catch (e2) { /* noop */ }
+    }
+    return n;
+  }
+  function clearCrsErrors(mapping) {
+    Object.keys(mapping || {}).forEach(function (k) { clearFieldError(mapping[k]); });
+  }
+  /* 返回可直接展示的完整错误文本；同时打开高级区、聚焦对应字段 */
+  function applyCrsError(r, mapping) {
+    if (!r) return '';
+    var map = mapping || {};
+    clearCrsErrors(map);
+    var id = r.crs_field && map[r.crs_field];
+    if (id) {
+      var n = el(id);
+      if (n) {
+        var d = n.closest ? n.closest('details') : null;
+        if (d) d.open = true;
+        markFieldError(id, r.hint || r.error || '');
+      }
+    }
+    var msg = r.error || '启动失败';
+    if (r.hint) msg += '\n' + r.hint;
+    if (r.crs_candidates && r.crs_candidates.length) {
+      msg += '\n可尝试：' + r.crs_candidates.map(function (c) {
+        return 'EPSG:' + c.epsg + '（' + c.reason + '）';
+      }).join('、');
+    }
+    return msg;
+  }
+  /* 成果坐标系说明：兼容 plan.report() 顶层字段与车载 result.crs 子对象 */
+  function crsLine(r) {
+    if (!r) return '';
+    var crs = r.crs && typeof r.crs === 'object' ? r.crs : {};
+    var src = r.source_crs || crs.source_crs || '';
+    var tgt = r.target_crs || crs.target_crs || '';
+    if (!src && !tgt) return '';
+    var parts = [];
+    if (src) parts.push('源坐标系：' + src);
+    if (tgt) parts.push('输出坐标系：' + tgt);
+    return parts.join(' · ');
+  }
+
   AVT.ui = {
     el: el, esc: esc, toast: toast, hideToast: hideToast,
     fmtElapsed: fmtElapsed, pad2: pad2,
@@ -372,6 +433,8 @@
     isFilled: isFilled, bindReady: bindReady,
     showErrBox: showErrBox, hideErrBox: hideErrBox,
     localImg: localImg, previewData: previewData,
-    emptyHtml: emptyHtml, pathlineHtml: pathlineHtml, setPath: setPath
+    emptyHtml: emptyHtml, pathlineHtml: pathlineHtml, setPath: setPath,
+    markFieldError: markFieldError, clearFieldError: clearFieldError,
+    clearCrsErrors: clearCrsErrors, applyCrsError: applyCrsError, crsLine: crsLine
   };
 })(window.AVT = window.AVT || {});

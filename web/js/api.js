@@ -5,6 +5,8 @@
    scan_directory / start_pipeline / get_status / start_dom /
    get_dom_status / start_compare / get_cmp_status /
    preview_image / read_text_file
+   三个 start_* 方法在末尾追加 CRS 参数（位姿/输入/存量/底图/输出）；
+   返回的 started=false 可能带 error_code / crs_field / hint / crs_candidates。
    ============================================================ */
 (function (AVT) {
   'use strict';

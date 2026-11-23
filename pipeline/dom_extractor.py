@@ -1,26 +1,23 @@
 """正射影像（DOM）要素提取：车道标线 / 面状标线 → GDB + SHP + 预览图。
 
 流程：分块读取 BigTIFF → 局部对比度分割（白/黄标线掩膜）→ 轮廓分类
-（细长=线、块状=面）→ 像素坐标转武汉本地 TM → 共线合并 → 落盘。
+（细长=线、块状=面）→ 像素坐标转 working CRS → 共线合并 → 转目标 CRS 落盘。
 
-坐标约定：输出与存量 GDB 一致的武汉本地 TM（WUHAN_CGCS2000_GK_WKT），
-DOM 若为 EPSG:3857 等其它坐标系，使用 `to_local` 变换链统一。
+坐标约定：输入 CRS 从影像自身读取（缺失时由用户指定）；输出默认跟随影像，
+可用 output_crs 覆盖；内部计算使用米制 working CRS，阈值/面积不受源单位影响。
 """
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from . import coords
-from .config import WUHAN_CGCS2000_GK_WKT
+from . import coords, crs_plan
 from .imgio import read_rgb
-
-LOCAL_PROJ4 = ("+proj=tmerc +lat_0=0 +lon_0=114.3333333333333 +k=1 +x_0=800000 "
-               "+y_0=-3000000 +a=6378137 +rf=298.257222101 +units=m +no_defs")
 
 TILE = 2048
 OVERLAP = 256
@@ -103,12 +100,11 @@ class DomExtractor:
     def run(self, tif_path: str, out_dir: str, stock_gdb: str | None = None,
             pad_m: float = 60.0, wlog=print, progress_cb=None, export_shp: bool = False,
             use_corridor: bool = True, corridor_half_m: float = 8.0,
-            corridor_layers: tuple | None = ("LTSL", "LFCL")):
+            corridor_layers: tuple | None = ("LTSL", "LFCL"),
+            input_crs=None, stock_crs=None, output_crs=None):
         import geopandas as gpd
         import rasterio
         import shapely
-        from pyproj import CRS
-        from rasterio.enums import Resampling
         from rasterio.windows import Window, from_bounds
         from shapely.geometry import LineString, Polygon
 
@@ -116,59 +112,44 @@ class DomExtractor:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         dom = rasterio.open(tif_path)
-        try:
-            src_crs = CRS.from_user_input(dom.crs) if dom.crs else CRS.from_epsg(3857)
-        except Exception as e:
-            raise RuntimeError(
-                f"无法解析影像坐标系（{dom.crs}）：{e}\n"
-                f"请在 ArcGIS Pro 中为该影像定义正确的坐标系后重试。") from e
-        raw_desc = coords.describe(src_crs)
-        # ArcGIS 导出的个别 GeoTIFF 会丢失投影参数（只剩坐标系名称），GDAL 将其
-        # 识别为 Engineering CRS。优先按元数据 ESRI PE String 还原；Web Mercator
-        # 名称 + 坐标范围吻合时按 EPSG:3857 处理，避免误报“无法建立转换”。
-        src_crs, crs_note = coords.resolve_source_crs(
-            src_crs, dom.bounds, coords.dataset_esri_wkt(dom))
-        if crs_note:
-            wlog(f"警告：影像坐标系「{raw_desc}」缺少投影参数，{crs_note}；"
-                 "如结果坐标不符，请在 ArcGIS Pro 中重新定义坐标系")
-        local = CRS.from_proj4(LOCAL_PROJ4)
-        wlog(f"影像坐标系：{coords.describe(src_crs)}")
+        src_crs, src_origin, crs_note = coords.resolve_raster_crs(
+            dom, input_crs, field="input_crs")
+        target_override = coords.parse_crs(output_crs, field="output_crs")
+        plan = crs_plan.plan_for_bounds(
+            src_crs, target_override, dom.bounds,
+            source_origin=src_origin,
+            target_origin="user" if target_override is not None else "default:source")
+        target_crs = plan.target_crs
+        working_crs = plan.working_crs
+        to_working = plan.to_working()
+        to_target = plan.to_target()
+        wlog(f"影像坐标系：{coords.crs_label(src_crs)}"
+             + (f"（{crs_note}）" if crs_note else ""))
+        wlog(f"工作坐标系：{coords.crs_label(working_crs)}（{plan.working_reason}）；"
+             f"输出坐标系：{coords.crs_label(target_crs)}")
         wlog(f"影像范围：{tuple(round(v, 1) for v in dom.bounds)}")
 
-        # 坐标转换：同投影直接跳过（WKT 与 Proj4 的 datum 名称差异会让
-        # CRS.equals() 误判）；本地/未定义坐标系无法转换时，若坐标范围与武汉
-        # 本地 TM 吻合则按源坐标处理，否则给出可执行的错误提示。
-        to_local = None
-        same_frame = False
-        assumed_local = False
-        try:
-            to_local = coords.build_transformer(src_crs, local)
-            same_frame = to_local is None
-            if same_frame:
-                wlog("影像坐标系与武汉本地 TM 一致，跳过坐标转换")
-        except ValueError as exc:
-            if coords.bounds_look_like_local_tm(dom.bounds):
-                same_frame = assumed_local = True
-                wlog(f"警告：{exc}")
-                wlog("影像坐标范围与武汉本地 TM 吻合，按源坐标直接处理（不做转换）")
-            else:
-                raise RuntimeError(
-                    f"{exc}\n"
-                    f"正射提取要求影像带有效坐标系（如 CGCS2000 3 度带 114E、"
-                    f"武汉本地 TM 或 EPSG:3857）。当前影像坐标系为"
-                    f"「{coords.describe(src_crs)}」，无法转换到武汉本地 TM，"
-                    f"请在 ArcGIS Pro 中为其定义正确坐标系后重试。\n"
-                    f"运行环境：{coords.runtime_info()}") from exc
+        # 存量 GDB：逐层读取真实 CRS；缺失层用 stock_crs，仍缺失则报错。
+        stock_info = None
+        if stock_gdb and Path(stock_gdb).exists():
+            stock_info = coords.inspect_gdb_crs(
+                stock_gdb, stock_crs, field="stock_crs")
+            wlog(f"存量坐标系：{coords.crs_label(stock_info.primary)}"
+                 + ("（混合 CRS，逐层转换）" if stock_info.origin == "mixed" else ""))
 
         # 处理范围：默认全图；给定存量 GDB 时按其范围 + pad 裁剪（实用场景：图幅更新）
-        if stock_gdb and Path(stock_gdb).exists():
+        if stock_info is not None:
             try:
-                b = self._stock_bounds(stock_gdb, None if same_frame else src_crs)
-                win = from_bounds(b[0] - pad_m, b[1] - pad_m, b[2] + pad_m, b[3] + pad_m,
-                                  dom.transform)
+                b = self._stock_bounds(stock_gdb, stock_info, working_crs)
+                b_src = coords.transform_bounds(
+                    (b[0] - pad_m, b[1] - pad_m, b[2] + pad_m, b[3] + pad_m),
+                    working_crs, src_crs)
+                win = from_bounds(*b_src, dom.transform)
                 win = win.intersection(rasterio.windows.Window(0, 0, dom.width, dom.height))
                 win = win.round_offsets().round_lengths()
                 wlog(f"处理范围：按存量图幅裁剪（{win.width:.0f}×{win.height:.0f}px）")
+            except coords.CRSError:
+                raise
             except Exception as e:
                 wlog(f"存量范围裁剪失败，改为全图处理：{e}")
                 win = rasterio.windows.Window(0, 0, dom.width, dom.height)
@@ -179,15 +160,12 @@ class DomExtractor:
         # 存量走廊约束：仅保留存量「线状道路要素」缓冲范围内的提取结果
         # （对标基准 GDB 的交通标线口径：道路以外不提取，建筑/屋顶/停车场一律剔除）
         corridor = None
-        if stock_gdb and Path(stock_gdb).exists() and use_corridor:
+        if stock_info is not None and use_corridor:
             try:
-                import geopandas as gpd
-                import shapely
-                from pyproj import CRS
-                local_crs = CRS.from_proj4(LOCAL_PROJ4)
                 import pyogrio as _og
-                all_layers = [n for n, _gt in _og.list_layers(stock_gdb)
-                              if not n.startswith("~") and not n.endswith(".xlsx")]
+                all_layers = [n for n, gt in _og.list_layers(stock_gdb)
+                              if gt and not n.startswith("~")
+                              and not n.endswith(".xlsx")]
                 want = [n for n in (corridor_layers or ()) if n in all_layers]
                 names = want or all_layers
                 kind = "线状道路要素" if want else "全部要素（未找到线状图层）"
@@ -199,6 +177,10 @@ class DomExtractor:
                         continue
                     if g.empty:
                         continue
+                    if g.crs is None:
+                        g = g.set_crs(stock_info.per_layer.get(name),
+                                      allow_override=True)
+                    g = g.to_crs(working_crs)
                     geoms += [p for gg in g.geometry for p in shapely.get_parts([gg])]
                 if geoms:
                     corridor = shapely.union_all(
@@ -209,13 +191,15 @@ class DomExtractor:
                          f"道路以外区域不提取）")
                 else:
                     wlog("存量走廊约束：无可用要素，按路面掩膜提取")
+            except coords.CRSError:
+                raise
             except Exception as e:
                 corridor = None
                 wlog(f"走廊构建失败，不启用走廊约束：{e}")
-        elif stock_gdb and not use_corridor:
+        elif stock_info is not None and not use_corridor:
             wlog("存量走廊约束：关闭（提取全范围，建筑等可能进入成果）")
 
-        res_m = abs(dom.transform.a)  # 源坐标系单位/像素
+        res_m = self._center_res_m(dom, to_working, win)
         nx = int(np.ceil(win.width / self.tile))
         ny = int(np.ceil(win.height / self.tile))
         total = nx * ny
@@ -240,11 +224,12 @@ class DomExtractor:
                 if img.size == 0 or img.max() == 0:
                     continue
                 sub_t = dom.window_transform(sub)
+                tile_res_m = self._tile_res_m(dom, sub_t, sub, to_working)
                 wm, ym, road = self.masks(img)
                 for m in (wm, ym):
                     cnts, _ = cv2.findContours(m, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
                     for cnt in cnts:
-                        r = self.classify(cnt, res_m)
+                        r = self.classify(cnt, tile_res_m)
                         if r is None:
                             continue
                         kind, pts = r
@@ -271,9 +256,12 @@ class DomExtractor:
                                     and road[int(cyy), int(cxx)] > 0):
                                 continue
                         world = [sub_t * (p[0], p[1]) for p in pts]
-                        if to_local:
-                            world = [to_local.transform(x, y) for x, y in world]
-                        # 存量走廊过滤（世界坐标为本地系）
+                        if to_working is not None:
+                            xs = [p[0] for p in world]
+                            ys = [p[1] for p in world]
+                            tx, ty = to_working.transform(xs, ys)
+                            world = list(zip(tx, ty))
+                        # 存量走廊过滤（世界坐标为 working 米制）
                         if corridor is not None:
                             test = (LineString(world) if kind == "line"
                                     else Polygon(world).representative_point())
@@ -302,24 +290,26 @@ class DomExtractor:
         if progress_cb:
             progress_cb(total + 1, total + N_TAIL, "正在写出 GDB…")
 
-        # 落盘
+        # 落盘：属性在 working 米制下计算，几何转目标 CRS 后写出。
+        lines_out = self._transform_geoms(lines, to_target)
+        polys_out = self._transform_geoms(polys, to_target)
         gdb_path = out / "正射提取.gdb"
         layers_written = []
         try:
-            if lines:
+            if lines_out:
                 gdf = gpd.GeoDataFrame(
-                    {"SID": [i + 1 for i in range(len(lines))],
+                    {"SID": [i + 1 for i in range(len(lines_out))],
                      "LEN_M": [round(g.length, 2) for g in lines],
-                     "SRC": ["DOM"] * len(lines)},
-                    geometry=lines, crs=WUHAN_CGCS2000_GK_WKT)
+                     "SRC": ["DOM"] * len(lines_out)},
+                    geometry=lines_out, crs=target_crs)
                 gdf.to_file(str(gdb_path), layer="lanes", driver="OpenFileGDB")
                 layers_written.append("lanes")
-            if polys:
+            if polys_out:
                 gdf = gpd.GeoDataFrame(
-                    {"SID": [i + 1 for i in range(len(polys))],
+                    {"SID": [i + 1 for i in range(len(polys_out))],
                      "AREA_M2": [round(g.area, 2) for g in polys],
-                     "SRC": ["DOM"] * len(polys)},
-                    geometry=polys, crs=WUHAN_CGCS2000_GK_WKT)
+                     "SRC": ["DOM"] * len(polys_out)},
+                    geometry=polys_out, crs=target_crs)
                 gdf.to_file(str(gdb_path), layer="lane_areas", driver="OpenFileGDB")
                 layers_written.append("lane_areas")
         except Exception as e:
@@ -337,24 +327,24 @@ class DomExtractor:
                             old.unlink()
                 else:
                     shp_dir.mkdir(parents=True, exist_ok=True)
-                if lines:
-                    gpd.GeoDataFrame({"SID": range(1, len(lines) + 1)},
-                                     geometry=lines, crs=WUHAN_CGCS2000_GK_WKT
+                if lines_out:
+                    gpd.GeoDataFrame({"SID": range(1, len(lines_out) + 1)},
+                                     geometry=lines_out, crs=target_crs
                                      ).to_file(str(shp_dir / "lanes.shp"), encoding="utf-8")
                     shp_files.append(str(shp_dir / "lanes.shp"))
-                if polys:
-                    gpd.GeoDataFrame({"SID": range(1, len(polys) + 1)},
-                                     geometry=polys, crs=WUHAN_CGCS2000_GK_WKT
+                if polys_out:
+                    gpd.GeoDataFrame({"SID": range(1, len(polys_out) + 1)},
+                                     geometry=polys_out, crs=target_crs
                                      ).to_file(str(shp_dir / "lane_areas.shp"), encoding="utf-8")
                     shp_files.append(str(shp_dir / "lane_areas.shp"))
             except Exception as e:
                 wlog(f"SHP 写出失败：{e}")
 
-        # 预览图
+        # 预览图：工作系几何需反变换回 DOM 源 CRS 才能叠加到影像上。
         preview = str(out / "提取预览.png")
         try:
             self.render_preview(dom, win, lines, polys, preview,
-                                to_local is not None, local, src_crs)
+                                work_to_src=plan.to_source())
             wlog("预览图已生成：提取预览.png")
         except Exception as e:
             wlog(f"预览图生成失败：{e}")
@@ -362,9 +352,10 @@ class DomExtractor:
 
         report = {
             "tif": str(tif_path),
-            "crs": str(dom.crs),
-            # 影像坐标系为本地/未定义坐标系且无法转换时，按源坐标直接处理
-            "crs_assumed_local": assumed_local,
+            "crs": coords.crs_label(src_crs),          # 兼容旧字段，等于源 CRS
+            **plan.report(),
+            "stock_crs": (coords.crs_label(stock_info.primary)
+                          if stock_info is not None else ""),
             "window_px": [int(win.width), int(win.height)],
             "res_m": round(res_m, 4),
             "lines": len(lines),
@@ -383,25 +374,57 @@ class DomExtractor:
         return report
 
     # ---------- 工具 ----------
-    def _stock_bounds(self, stock_gdb, src_crs=None):
-        """存量 GDB 范围（单位为影像坐标系）。src_crs 为 None 表示影像即本地 TM。"""
+    @staticmethod
+    def _transform_geoms(geoms, tf):
+        if tf is None or not geoms:
+            return geoms
+        from shapely.ops import transform as shp_transform
+        return [shp_transform(tf.transform, g) for g in geoms]
+
+    @staticmethod
+    def _tile_res_m(dom, sub_t, sub, to_working) -> float:
+        """tile 中心处 1 像素在 working CRS 下的米数（x/y 平均）。"""
+        cx = sub.width / 2.0
+        cy = sub.height / 2.0
+        x0, y0 = sub_t * (cx, cy)
+        x1, y1 = sub_t * (cx + 1.0, cy)
+        x2, y2 = sub_t * (cx, cy + 1.0)
+        if to_working is not None:
+            x0, y0 = to_working.transform(x0, y0)
+            x1, y1 = to_working.transform(x1, y1)
+            x2, y2 = to_working.transform(x2, y2)
+        return (math.hypot(x1 - x0, y1 - y0)
+                + math.hypot(x2 - x0, y2 - y0)) / 2.0
+
+    @classmethod
+    def _center_res_m(cls, dom, to_working, win) -> float:
+        cx = win.col_off + win.width / 2.0
+        cy = win.row_off + win.height / 2.0
+        x0, y0 = dom.transform * (cx, cy)
+        x1, y1 = dom.transform * (cx + 1.0, cy)
+        x2, y2 = dom.transform * (cx, cy + 1.0)
+        if to_working is not None:
+            x0, y0 = to_working.transform(x0, y0)
+            x1, y1 = to_working.transform(x1, y1)
+            x2, y2 = to_working.transform(x2, y2)
+        return (math.hypot(x1 - x0, y1 - y0)
+                + math.hypot(x2 - x0, y2 - y0)) / 2.0
+
+    @staticmethod
+    def _stock_bounds(stock_gdb, stock_info, working_crs):
+        """各层按真实 CRS 转 working 后的合并范围。"""
         import geopandas as gpd
-        import pyogrio
-        from pyproj import CRS
-        local = CRS.from_proj4(LOCAL_PROJ4)
         bs = []
-        for name, _geom in pyogrio.list_layers(stock_gdb):
-            if name.startswith("~") or name.endswith(".xlsx"):
-                continue
+        for name in stock_info.per_layer:
             try:
                 g = gpd.read_file(stock_gdb, layer=name)
             except Exception:
                 continue
             if g.empty:
                 continue
-            g = g.set_crs(local, allow_override=True)
-            if src_crs is not None:
-                g = g.to_crs(src_crs)
+            if g.crs is None:
+                g = g.set_crs(stock_info.per_layer[name], allow_override=True)
+            g = g.to_crs(working_crs)
             bs.append(g.total_bounds)
         if not bs:
             raise RuntimeError("存量 GDB 无有效图层")
@@ -492,9 +515,8 @@ class DomExtractor:
                 break
         return lines
 
-    def render_preview(self, dom, win, lines, polys, out_png,
-                       need_back: bool = False, local=None, src_crs=None):
-        import rasterio
+    def render_preview(self, dom, win, lines, polys, out_png, work_to_src=None):
+        """工作系几何 → DOM 源 CRS → 像素，叠加到底图上。"""
         from rasterio.enums import Resampling
         OW = 1600
         scale = win.width / OW
@@ -505,14 +527,9 @@ class DomExtractor:
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         inv = ~wt
 
-        back = None
-        if need_back and local is not None and src_crs is not None:
-            from pyproj import Transformer
-            back = Transformer.from_crs(local, src_crs, always_xy=True)
-
         def w2p(x, y):
-            if back is not None:
-                x, y = back.transform(x, y)
+            if work_to_src is not None:
+                x, y = work_to_src.transform(x, y)
             c, r = inv * (x, y)
             return c / scale, r / scale
 

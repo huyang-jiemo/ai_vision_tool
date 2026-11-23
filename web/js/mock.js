@@ -160,12 +160,24 @@
       }
       perSession[SESSIONS[s]] = { cats: cats, lane: lane };
     }
-    return { per_session: perSession, output_dir: CAR_OUT };
+    return {
+      per_session: perSession, output_dir: CAR_OUT,
+      crs: {
+        source_crs: 'EPSG:4326（WGS 84）',
+        target_crs: 'EPSG:4326（WGS 84）',
+        working_crs: '局部 TM（中央经线 114.300000°）',
+        source_origin: 'lonlat', target_origin: 'default:pose'
+      }
+    };
   }
 
   var DOM_RESULT = {
     lines: 1246, areas: 132, seconds: 92.4,
-    gdb: DOM_OUT, preview: domPreview()
+    gdb: DOM_OUT, preview: domPreview(),
+    source_crs: 'EPSG:3857（WGS 84 / Pseudo-Mercator）',
+    target_crs: 'EPSG:3857（WGS 84 / Pseudo-Mercator）',
+    working_crs: '局部 TM（中央经线 114.300000°）',
+    source_origin: 'file', target_origin: 'default:source'
   };
 
   var CMP_RESULT = {
@@ -176,7 +188,11 @@
       points: { matched: 196,  new: 12, missing: 4,  modified: 8  }
     },
     change_gdb: CMP_OUT,
-    preview: cmpPreview()
+    preview: cmpPreview(),
+    source_crs: 'EPSG:4547（CGCS2000 / 3-degree Gauss-Kruger CM 114E）',
+    target_crs: 'EPSG:4547（CGCS2000 / 3-degree Gauss-Kruger CM 114E）',
+    working_crs: 'EPSG:4547（CGCS2000 / 3-degree Gauss-Kruger CM 114E）',
+    source_origin: 'file', target_origin: 'default:new'
   };
 
   /* ─────────── 状态机 ─────────── */
@@ -258,7 +274,7 @@
       return ok({ ok: true, path: p });
     },
     pick_file: function (title) {
-      var p = /底图/.test(title || '') ? 'D:\\DOM\\城南片区_0.05m.tif'
+      var p = /坐标系|\.prj/.test(title || '') ? 'D:\\DOM\\城南.prj'
         : 'D:\\DOM\\城南片区_0.05m.tif';
       return ok({ ok: true, path: p });
     },

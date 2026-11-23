@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+from pipeline import coords
 from pipeline.config import BUSINESS_CATEGORIES, PipelineConfig
 from pipeline.detector import YoloDetector
 from pipeline.processor import Pipeline
@@ -28,8 +29,66 @@ class RunState:
         self.log_total = 0
         self.result = None
         self.error = None
+        # 结构化错误：前端据此聚焦到具体输入框
+        self.error_code = ""
+        self.crs_field = ""
+        self.hint = ""
+        self.crs_candidates = []
+        self.crs_info = {}
         self.files = []            # 逐文件状态 [{name,status,det,lane}]
         self.log_file = ""         # 本次运行日志文件路径（输出目录下）
+
+
+def _record_error(st: RunState, exc: Exception) -> None:
+    """把异常写入运行状态；CRS/位姿错误带错误码与字段名。"""
+    with st.lock:
+        st.state = "error"
+        st.error = str(exc)
+        st.error_code = getattr(exc, "code", "INTERNAL") or "INTERNAL"
+        st.crs_field = getattr(exc, "field", "") or ""
+        st.hint = getattr(exc, "hint", "") or ""
+        st.crs_candidates = getattr(exc, "candidates", []) or []
+
+
+def _reset_state(st: RunState) -> None:
+    with st.lock:
+        st.state, st.progress, st.total = "running", 0, 0
+        st.current = ""
+        st.logs.clear()
+        st.log_total = 0
+        st.result = st.error = None
+        st.error_code = st.crs_field = st.hint = ""
+        st.crs_candidates = []
+        st.crs_info = {}
+        st.log_file = ""
+        st.files = []
+
+
+def _status_payload(st: RunState) -> dict:
+    return {
+        "state": st.state,
+        "progress": st.progress,
+        "total": st.total,
+        "current": st.current,
+        "logs": list(st.logs)[-200:],
+        "log_seq": st.log_total,
+        "result": st.result,
+        "error": st.error,
+        "error_code": st.error_code,
+        "crs_field": st.crs_field,
+        "hint": st.hint,
+        "crs_candidates": st.crs_candidates,
+        "crs_info": st.crs_info,
+        "log_file": st.log_file,
+    }
+
+
+def _crs_error_payload(exc: coords.CRSError, *, candidates=None) -> dict:
+    payload = exc.to_dict()
+    payload["started"] = False
+    if candidates:
+        payload["crs_candidates"] = candidates
+    return payload
 
 
 class Api:
@@ -120,31 +179,33 @@ class Api:
             return {"images": 0, "poses": 0, "matched": 0, "sample": "", "error": str(e)}
 
     def start_pipeline(self, data_dir, output_dir, conf=0.20, max_images=None,
-                       export_shp=True, export_gdb=False):
-        """车载影像提取：输出 SHP（export_gdb 默认关闭，按需求只交付 SHP）。"""
+                       export_shp=True, export_gdb=False, pose_crs=None,
+                       output_crs=None):
+        """车载影像提取：输出 SHP（export_gdb 默认关闭，按需求只交付 SHP）。
+
+        位姿经纬度默认为 WGS84；输出默认跟随位姿坐标系。CRS 字符串在启动前
+        同步校验，非法值直接返回 CRS_INVALID，不进入后台线程。
+        """
         if self.state.state == "running":
             return {"started": False, "error": "已在运行中"}
+        try:
+            coords.parse_crs(pose_crs, field="pose_crs")
+            coords.parse_crs(output_crs, field="output_crs")
+        except coords.CRSError as e:
+            return _crs_error_payload(e)
         t = threading.Thread(
             target=self._run,
-            args=(data_dir, output_dir, conf, max_images, export_shp, export_gdb),
+            args=(data_dir, output_dir, conf, max_images, export_shp, export_gdb,
+                  pose_crs, output_crs),
             daemon=True)
         t.start()
         return {"started": True}
 
     def get_status(self):
         with self.state.lock:
-            return {
-                "state": self.state.state,
-                "progress": self.state.progress,
-                "total": self.state.total,
-                "current": self.state.current,
-                "logs": list(self.state.logs)[-200:],
-                "log_seq": self.state.log_total,
-                "result": self.state.result,
-                "error": self.state.error,
-                "files": self.state.files,
-                "log_file": self.state.log_file,
-            }
+            payload = _status_payload(self.state)
+            payload["files"] = self.state.files
+            return payload
 
     def preview_image(self, path):
         try:
@@ -207,47 +268,59 @@ class Api:
         return tif, tip
 
     def start_dom(self, tif_path, output_dir, stock_gdb=None, min_len=2.0,
-                  use_stock_clip=True, use_corridor=True):
+                  use_stock_clip=True, use_corridor=True,
+                  input_crs=None, stock_crs=None, output_crs=None):
+        """正射提取：启动前同步校验影像/存量 CRS，缺失时立即返回结构化错误。"""
         if self.dom_state.state == "running":
             return {"started": False, "error": "正射解译正在运行中"}
         tif_path, tip = self._resolve_dom_tif(tif_path)
         if not tif_path:
             return {"started": False, "error": tip or "正射影像不存在"}
+        stock = stock_gdb if (use_stock_clip and stock_gdb) else None
+        if stock and not os.path.exists(stock):
+            return {"started": False, "error": "存量 GDB 不存在",
+                    "error_code": "INPUT_NOT_FOUND", "crs_field": "stock_gdb"}
+        try:
+            coords.parse_crs(output_crs, field="output_crs")
+            import rasterio
+            with rasterio.open(tif_path) as ds:
+                try:
+                    coords.resolve_raster_crs(ds, input_crs, field="input_crs")
+                except coords.CRSMissingError as e:
+                    return _crs_error_payload(
+                        e, candidates=coords.suggest_crs_candidates(ds.bounds))
+            if stock:
+                coords.inspect_gdb_crs(stock, stock_crs, field="stock_crs")
+        except coords.CRSError as e:
+            return _crs_error_payload(e)
+        except Exception as e:
+            return {"started": False, "error": f"输入预检失败：{e}",
+                    "error_code": "INTERNAL"}
         t = threading.Thread(target=self._run_dom,
                              args=(tif_path, output_dir, stock_gdb, min_len,
-                                   use_stock_clip, use_corridor, tip),
+                                   use_stock_clip, use_corridor, tip,
+                                   input_crs, stock_crs, output_crs),
                              daemon=True)
         t.start()
         return {"started": True, "tif": tif_path, "note": tip}
 
     def get_dom_status(self):
         with self.dom_state.lock:
-            return {
-                "state": self.dom_state.state,
-                "progress": self.dom_state.progress,
-                "total": self.dom_state.total,
-                "current": self.dom_state.current,
-                "logs": list(self.dom_state.logs)[-200:],
-                "log_seq": self.dom_state.log_total,
-                "result": self.dom_state.result,
-                "error": self.dom_state.error,
-                "log_file": self.dom_state.log_file,
-            }
+            return _status_payload(self.dom_state)
 
     def _run_dom(self, tif_path, output_dir, stock_gdb, min_len, use_stock_clip,
-                 use_corridor=True, note=""):
+                 use_corridor=True, note="", input_crs=None, stock_crs=None,
+                 output_crs=None):
         from pipeline.dom_extractor import DomExtractor
         st = self.dom_state
-        with st.lock:
-            st.state, st.progress, st.total = "running", 0, 0
-            st.current = ""
-            st.logs.clear()
-            st.log_total = 0
-            st.result = st.error = None
+        _reset_state(st)
         log_fh = self._open_job_log(st, output_dir, "正射影像提取",
                                     f"影像: {tif_path}\n输出: {output_dir}\n"
                                     f"存量裁剪: {use_stock_clip} 最短标线: {min_len}m "
-                                    f"走廊约束: {use_corridor}"
+                                    f"走廊约束: {use_corridor}\n"
+                                    f"影像坐标系: {input_crs or '（跟随文件）'} "
+                                    f"存量坐标系: {stock_crs or '（跟随文件）'} "
+                                    f"输出坐标系: {output_crs or '（跟随影像）'}"
                                     + (f"\n{note}" if note else ""))
         wlog = self._wlog(st, log_fh)
         wlog(f"影像：{tif_path}")
@@ -265,14 +338,17 @@ class Api:
                                   and os.path.exists(stock_gdb)) else None
             res = extractor.run(tif_path, output_dir, stock_gdb=stock,
                                 wlog=wlog, progress_cb=cb,
-                                use_corridor=use_corridor and stock is not None)
+                                use_corridor=use_corridor and stock is not None,
+                                input_crs=input_crs, stock_crs=stock_crs,
+                                output_crs=output_crs)
             with st.lock:
                 st.state = "done"
                 st.result = res
+                st.crs_info = {k: res.get(k) for k in
+                               ("source_crs", "target_crs", "working_crs",
+                                "source_origin", "target_origin")}
         except Exception as e:
-            with st.lock:
-                st.state = "error"
-                st.error = str(e)
+            _record_error(st, e)
             wlog("ERR: 正射提取中断 " + str(e))
         finally:
             if log_fh:
@@ -282,49 +358,72 @@ class Api:
                     pass
 
     # ---- 变化比对 ----
-    def start_compare(self, new_gdb, stock_gdb, dom_tif=None):
-        """变化比对：无需选择输出目录，自动写到存量 GDB 同级的 变化比对_时间戳/。"""
+    def start_compare(self, new_gdb, stock_gdb, dom_tif=None,
+                      new_crs=None, stock_crs=None, dom_crs=None,
+                      output_crs=None):
+        """变化比对：无需选择输出目录，自动写到存量 GDB 同级的 变化比对_时间戳/。
+
+        启动前同步检查三个输入的坐标系；DOM 仅作预览底图，缺 CRS 只告警不阻断。
+        """
         if self.cmp_state.state == "running":
             return {"started": False, "error": "比对正在运行中"}
         if not new_gdb or not os.path.exists(new_gdb):
-            return {"started": False, "error": "新成果 GDB 不存在"}
+            return {"started": False, "error": "新成果 GDB 不存在",
+                    "error_code": "INPUT_NOT_FOUND", "crs_field": "new_gdb"}
         if not stock_gdb or not os.path.exists(stock_gdb):
-            return {"started": False, "error": "存量 GDB 不存在"}
+            return {"started": False, "error": "存量 GDB 不存在",
+                    "error_code": "INPUT_NOT_FOUND", "crs_field": "stock_gdb"}
+        dom_note = ""
+        try:
+            coords.parse_crs(output_crs, field="output_crs")
+            coords.inspect_gdb_crs(new_gdb, new_crs, field="new_crs")
+            coords.inspect_gdb_crs(stock_gdb, stock_crs, field="stock_crs")
+            if dom_tif:
+                import rasterio
+                try:
+                    with rasterio.open(dom_tif) as ds:
+                        coords.resolve_raster_crs(ds, dom_crs, field="dom_crs")
+                except coords.CRSMissingError as e:
+                    dom_note = f"比对预览将跳过：{e}"
+                except coords.CRSInvalidError:
+                    raise
+                except Exception as e:
+                    dom_note = f"比对预览将跳过：无法打开底图（{e}）"
+        except coords.CRSError as e:
+            return _crs_error_payload(e)
+        except Exception as e:
+            return {"started": False, "error": f"输入预检失败：{e}",
+                    "error_code": "INTERNAL"}
         parent = os.path.dirname(os.path.abspath(stock_gdb)) or os.path.expanduser("~")
         out_dir = os.path.join(parent, "变化比对_" + time.strftime("%Y%m%d_%H%M%S"))
         t = threading.Thread(target=self._run_compare,
-                             args=(new_gdb, stock_gdb, out_dir, dom_tif),
+                             args=(new_gdb, stock_gdb, out_dir, dom_tif,
+                                   new_crs, stock_crs, dom_crs, output_crs, dom_note),
                              daemon=True)
         t.start()
-        return {"started": True, "output_dir": out_dir}
+        return {"started": True, "output_dir": out_dir, "note": dom_note}
 
     def get_cmp_status(self):
         with self.cmp_state.lock:
-            return {
-                "state": self.cmp_state.state,
-                "progress": self.cmp_state.progress,
-                "total": self.cmp_state.total,
-                "current": self.cmp_state.current,
-                "logs": list(self.cmp_state.logs)[-200:],
-                "log_seq": self.cmp_state.log_total,
-                "result": self.cmp_state.result,
-                "error": self.cmp_state.error,
-                "log_file": self.cmp_state.log_file,
-            }
+            return _status_payload(self.cmp_state)
 
-    def _run_compare(self, new_gdb, stock_gdb, output_dir, dom_tif):
+    def _run_compare(self, new_gdb, stock_gdb, output_dir, dom_tif,
+                     new_crs=None, stock_crs=None, dom_crs=None,
+                     output_crs=None, note=""):
         from pipeline.comparator import Comparator
         st = self.cmp_state
-        with st.lock:
-            st.state, st.progress, st.total = "running", 0, 0
-            st.current = ""
-            st.logs.clear()
-            st.log_total = 0
-            st.result = st.error = None
+        _reset_state(st)
         log_fh = self._open_job_log(st, output_dir, "变化比对",
                                     f"新成果: {new_gdb}\n存量: {stock_gdb}\n"
-                                    f"输出: {output_dir}（自动生成，无需选择）")
+                                    f"输出: {output_dir}（自动生成，无需选择）\n"
+                                    f"新成果坐标系: {new_crs or '（跟随文件）'} "
+                                    f"存量坐标系: {stock_crs or '（跟随文件）'} "
+                                    f"底图坐标系: {dom_crs or '（跟随文件）'} "
+                                    f"输出坐标系: {output_crs or '（跟随新成果）'}"
+                                    + (f"\n{note}" if note else ""))
         wlog = self._wlog(st, log_fh)
+        if note:
+            wlog(note)
 
         def cb(i, total, msg):
             with st.lock:
@@ -333,14 +432,17 @@ class Api:
 
         try:
             res = Comparator().run(new_gdb, stock_gdb, output_dir,
-                                   dom_tif=dom_tif or None, wlog=wlog, progress_cb=cb)
+                                   dom_tif=dom_tif or None, wlog=wlog, progress_cb=cb,
+                                   new_crs=new_crs, stock_crs=stock_crs,
+                                   dom_crs=dom_crs, output_crs=output_crs)
             with st.lock:
                 st.state = "done"
                 st.result = res
+                st.crs_info = {k: res.get(k) for k in
+                               ("source_crs", "target_crs", "working_crs",
+                                "source_origin", "target_origin")}
         except Exception as e:
-            with st.lock:
-                st.state = "error"
-                st.error = str(e)
+            _record_error(st, e)
             wlog("ERR: 比对中断 " + str(e))
         finally:
             if log_fh:
@@ -402,16 +504,9 @@ class Api:
             self._detector_err = str(e)
         return self._detector
 
-    def _run(self, data_dir, output_dir, conf, max_images, export_shp, export_gdb):
-        with self.state.lock:
-            self.state.state = "running"
-            self.state.progress = 0
-            self.state.total = 0
-            self.state.current = ""
-            self.state.logs.clear()
-            self.state.log_total = 0
-            self.state.result = None
-            self.state.error = None
+    def _run(self, data_dir, output_dir, conf, max_images, export_shp, export_gdb,
+             pose_crs=None, output_crs=None):
+        _reset_state(self.state)
         self.cfg.conf_threshold = float(conf)
 
         # 运行日志同步落盘到输出目录（每次运行独立文件，保留历史）
@@ -425,7 +520,9 @@ class Api:
             log_fh.write(f"==== 车载影像提取 {ts} ====\n")
             log_fh.write(f"数据源: {data_dir}\n输出目录: {output_dir}\n"
                          f"置信度阈值: {conf} 最大影像数: {max_images or '不限'} "
-                         f"导出: SHP\n\n")
+                         f"导出: SHP\n"
+                         f"位姿坐标系: {pose_crs or '（默认 EPSG:4326）'} "
+                         f"输出坐标系: {output_crs or '（跟随位姿）'}\n\n")
             log_fh.flush()
         except Exception:
             log_fh = None
@@ -487,7 +584,8 @@ class Api:
         try:
             res = pipe.process_project(
                 data_dir, output_dir, max_images=max_images, progress_cb=cb,
-                export_shp=export_shp, export_gdb=export_gdb)
+                export_shp=export_shp, export_gdb=export_gdb,
+                pose_crs=pose_crs, output_crs=output_crs, wlog=wlog)
             with self.state.lock:
                 self.state.state = "done"
                 self.state.result = {
@@ -495,7 +593,10 @@ class Api:
                     "change_count": res.change_count,
                     "change_path": res.change_path,
                     "output_dir": res.output_dir,
+                    "crs": res.crs,
+                    "report_path": res.report_path,
                 }
+                self.state.crs_info = dict(res.crs)
             for e in res.errors:
                 wlog("ERR: " + e)
             total_det = sum(v["det"] for v in res.per_session.values())
@@ -510,9 +611,7 @@ class Api:
                  f"车道线 {total_lane}，时序变化 {res.change_count}")
             wlog(f"成果目录: {res.output_dir}（preview/ 标注预览 · shp/ 矢量 SHP）")
         except Exception as e:
-            with self.state.lock:
-                self.state.state = "error"
-                self.state.error = str(e)
+            _record_error(self.state, e)
             wlog("ERR: 解译中断 " + str(e))
         finally:
             if log_fh:

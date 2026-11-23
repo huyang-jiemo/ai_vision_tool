@@ -2,7 +2,19 @@
 
 免训练、双击可用的桌面客户端。输入众源感知影像目录（车载前视 / 无人机航拍 + 位姿），
 自动完成 **车道线 / 交通标志 / 信号灯 / 路侧设施 / 动态障碍** 识别与时序变化提取，
-输出 **SHP 与 File GDB**（武汉本地横墨卡托，中央经线 114°20'E）。
+输出 **SHP 与 File GDB**。输入输出坐标系不写死，成果 CRS 跟随主输入并可覆盖。
+
+## 坐标系规则（v0.6.0 起）
+- **输入 CRS 从数据自身读取，不猜测**：影像/矢量缺少或损坏坐标系时直接报错
+  （`CRS_REQUIRED`），界面会聚焦对应输入框；填写 EPSG:xxxx、WKT 或 `.prj` 路径后重试。
+- **输出默认跟随主输入**：车载跟随位姿（`.hdi` 经纬度，默认 EPSG:4326）；
+  正射跟随 DOM 影像；变化比对跟随新成果 GDB。可用 `output_crs` 显式覆盖。
+- **次要输入自动转换**：存量 GDB、比对底图逐层读取真实 CRS 后转到工作坐标系；
+  GDB 内混合 CRS 也逐层转换，不再统一强制为某一种投影。
+- **内部统一米制**：所有阈值、缓冲、匹配、长度/面积都在米制工作坐标系中计算；
+  目标投影尺度或子午线收敛角不合格时，自动改用数据中心的局部 TM（不改变输出 CRS）。
+- 支持经纬度（度）输入/输出；`DIST/AVGDIST/LEN_M/AREA_M2` 始终为米，与输出 CRS 无关。
+- 仅支持 2D 地理/投影 CRS；compound 取水平分量，Engineering/地心 CRS 拒绝并提示。
 
 ## 硬约束
 - 原生桌面应用（macOS `.app` / Windows `.exe`），双击即用，目标机无需装 Python / torch / GDAL。
@@ -70,8 +82,9 @@ python tools/make_single_exe.py              # → dist_single/AIVisionTool-Wind
 app.py / api.py        桌面壳与 JS↔Python 桥
 launcher.py            单文件启动器（首启解压 payload，之后秒开）
 web/                   唯一界面源（index.html + css/ + js/）
-pipeline/              解译核心（config/data_loader/undistort/detector/
-                       lane_detector/georeference/change_detector/exporter/imgio/processor）
+pipeline/              解译核心（config/coords/crs_plan/data_loader/undistort/detector/
+                       lane_detector/georeference/change_detector/exporter/imgio/processor/
+                       dom_extractor/comparator）
 models/                yolo11n.onnx（入库权重）+ download_models.py（重新导出用）
 tools/                 预览构建、DOM 车道提取、坐标/启动器/回归自检、payload 与单文件生成
 docs/                  交付文档（说明 / 技术设计 / 测试文档，md + docx）

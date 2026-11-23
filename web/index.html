@@ -29,7 +29,7 @@
     </svg>
     <div class="brand__tt">
       <span class="brand__name">众源感知提取工具</span>
-      <span class="brand__ver">v0.5.7</span>
+      <span class="brand__ver">v0.6.0</span>
     </div>
     <div class="rail__sep" aria-hidden="true"></div>
   </div>
@@ -100,6 +100,23 @@
           <label class="field__lb" for="maxImg">最大影像数</label>
           <input class="inp" type="number" id="maxImg" value="0" min="0" placeholder="0 = 不限" />
         </div>
+        <details class="crs-adv" id="carCrsAdv">
+          <summary>坐标系（高级）</summary>
+          <p class="hint crs-adv__hint">留空时位姿按 WGS84 经纬度计算、输出跟随位姿；填写后以填写值为准。支持 EPSG:xxxx、WKT 或 .prj 文件路径。距离字段始终为米。</p>
+          <div class="cfg-grid">
+            <div class="field field--text">
+              <label class="field__lb" for="carPoseCrs">位姿坐标系<span class="field__opt">（留空 = EPSG:4326）</span></label>
+              <input class="inp inp--mono" type="text" id="carPoseCrs" placeholder="EPSG:4326" />
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="carOutCrs">输出坐标系<span class="field__opt">（留空 = 跟随位姿）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="carOutCrs" placeholder="EPSG:4547 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseCarOutCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
       <p class="hint" id="scanInfo">数据源目录需包含按批次同名配对的 照片/ 与 轨迹/ 子目录 · 成果输出 SHP（含标注预览图）</p>
     </section>
@@ -249,6 +266,33 @@
           <label class="field__lb" for="domMinLen">最短标线（米）</label>
           <input class="inp" type="number" id="domMinLen" value="2" min="0.5" step="0.5" />
         </div>
+        <details class="crs-adv" id="domCrsAdv">
+          <summary>坐标系（高级）</summary>
+          <p class="hint crs-adv__hint">影像与存量坐标系默认从文件读取；仅在文件缺少/损坏坐标系时填写。输出默认跟随影像，可在此覆盖。支持 EPSG:xxxx、WKT 或 .prj 文件路径；长度/面积字段始终为米。</p>
+          <div class="cfg-grid">
+            <div class="field field--text">
+              <label class="field__lb" for="domInCrs">影像坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="domInCrs" placeholder="EPSG:3857 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseDomInCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="domStockCrs">存量坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="domStockCrs" placeholder="EPSG:4547 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseDomStockCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="domOutCrs">输出坐标系<span class="field__opt">（留空 = 跟随影像）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="domOutCrs" placeholder="留空或 EPSG:4547" />
+                <button class="btn btn--sm btn--ghost" id="browseDomOutCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
       <div class="switches">
         <label class="switch"><input type="checkbox" id="domClip" checked /><span class="switch__track"></span>按存量范围裁剪</label>
@@ -354,6 +398,40 @@
             <button class="btn btn--sm btn--ghost" id="browseCmpTif" type="button">选择</button>
           </div>
         </div>
+        <details class="crs-adv" id="cmpCrsAdv">
+          <summary>坐标系（高级）</summary>
+          <p class="hint crs-adv__hint">新成果/存量坐标系默认从文件逐层读取；缺失时需填写。输出默认跟随新成果。底图仅用于预览，缺坐标系时自动跳过预览。支持 EPSG:xxxx、WKT 或 .prj 文件路径；匹配阈值始终按米。</p>
+          <div class="cfg-grid">
+            <div class="field field--text">
+              <label class="field__lb" for="cmpNewCrs">新成果坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="cmpNewCrs" placeholder="EPSG:4547 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseCmpNewCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="cmpStockCrs">存量坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="cmpStockCrs" placeholder="EPSG:4547 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseCmpStockCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="cmpDomCrs">底图坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="cmpDomCrs" placeholder="EPSG:3857 或 .prj 路径" />
+                <button class="btn btn--sm btn--ghost" id="browseCmpDomCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+            <div class="field field--text">
+              <label class="field__lb" for="cmpOutCrs">输出坐标系<span class="field__opt">（留空 = 跟随新成果）</span></label>
+              <div class="path-row">
+                <input class="inp inp--mono" type="text" id="cmpOutCrs" placeholder="留空或 EPSG:4547" />
+                <button class="btn btn--sm btn--ghost" id="browseCmpOutCrs" type="button">选择 .prj</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     </section>
 

@@ -17,6 +17,13 @@
   };
   var EMPTY_TIP = '尚未运行';
   var EMPTY_ICON = '<path d="M2 16l4-4 4 3 5-6 4 4 3-3"/><path d="M2 20h20"/>';
+  var CRS_MAP = {
+    input_crs: 'domInCrs', stock_crs: 'domStockCrs',
+    output_crs: 'domOutCrs', stock_gdb: 'domStock'
+  };
+  function errHtml(msg) {
+    return '<p class="hint hint--err">' + U.esc(msg).replace(/\n/g, '<br>') + '</p>';
+  }
 
   var log = null, syncReady = null;
   var runStartTs = 0, pollTimer = null;
@@ -35,6 +42,8 @@
       statHtml('面状标线（个）', r.areas) +
       statHtml('耗时（秒）', r.seconds) +
       '</div>';
+    var cl = U.crsLine(r);
+    if (cl) html += '<p class="hint">' + U.esc(cl) + ' · 长度/面积字段为米</p>';
     el('domResult').innerHTML = html;
     U.setPath('domResPath', r.gdb || '');
     if (r.preview) {
@@ -79,7 +88,8 @@
       finished = false;
       U.setChip(el('domChip'), CHIP, 'fail');
       U.setPath('domResPath', '');
-      el('domResult').innerHTML = '<p class="hint hint--err">失败：' + U.esc(s.error || '') + '</p>';
+      var msg = U.applyCrsError(s, CRS_MAP) || s.error || '发生未知错误';
+      el('domResult').innerHTML = errHtml('失败：' + msg);
     } else if (s.state === 'done') {
       finished = true;
       lastDomResult = s.result || null;
@@ -125,11 +135,20 @@
     var tif = el('domTif').value.trim(), out = el('domOut').value.trim();
     if (!tif) { U.toast('请选择正射影像目录', 'err'); return; }
     if (!out) { U.toast('请选择输出目录', 'err'); return; }
+    U.clearCrsErrors(CRS_MAP);
     A.call('start_dom', tif, out, el('domStock').value.trim() || null,
       parseFloat(el('domMinLen').value) || 2.0,
-      el('domClip').checked, el('domCorridor').checked)
+      el('domClip').checked, el('domCorridor').checked,
+      el('domInCrs').value.trim() || null,
+      el('domStockCrs').value.trim() || null,
+      el('domOutCrs').value.trim() || null)
       .then(function (r) {
-        if (!r || !r.started) { U.toast((r && r.error) || '启动失败', 'err'); return; }
+        if (!r || !r.started) {
+          var msg = U.applyCrsError(r || {}, CRS_MAP) || '启动失败';
+          el('domResult').innerHTML = errHtml(msg);
+          U.toast((r && r.error) || '启动失败', 'err');
+          return;
+        }
         runStartTs = Date.now();
         finished = false;
         U.setChip(el('domChip'), CHIP, 'run');
@@ -149,6 +168,15 @@
     };
     el('browseDomOut').onclick = function () { A.pickDir('domOut', '选择输出目录'); };
     el('browseDomStock').onclick = function () { A.pickDir('domStock', '选择存量 GDB 目录'); };
+    el('browseDomInCrs').onclick = function () {
+      A.pickFile('domInCrs', '选择影像坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
+    el('browseDomStockCrs').onclick = function () {
+      A.pickFile('domStockCrs', '选择存量坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
+    el('browseDomOutCrs').onclick = function () {
+      A.pickFile('domOutCrs', '选择输出坐标系 .prj 文件', ['.prj', '.wkt']);
+    };
     /* 兜底：输出目录为空时用上一次结果的 GDB 路径 */
     el('domOpenOut').onclick = function () {
       A.openDir(el('domOut').value.trim() || (lastDomResult && lastDomResult.gdb) || '');
