@@ -427,6 +427,9 @@ class Comparator:
             "new_gdb": str(new_gdb), "stock_gdb": str(stock_gdb),
             "crs": coords.crs_label(plan.source_crs),      # 兼容别名：主输入 CRS
             **plan.report(),
+            "new_origin": new_info.origin,
+            "stock_origin": stock_info.origin,
+            "stock_crs_note": stock_info.note,
             "new_layers_crs": {k: coords.crs_label(v)
                                for k, v in new_info.per_layer.items()},
             "stock_layers_crs": {k: coords.crs_label(v)

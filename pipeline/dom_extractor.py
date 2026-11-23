@@ -402,6 +402,8 @@ class DomExtractor:
             **plan.report(),
             "stock_crs": (coords.crs_label(stock_info.primary)
                           if stock_info is not None else ""),
+            "stock_origin": stock_info.origin if stock_info is not None else "",
+            "stock_crs_note": stock_info.note if stock_info is not None else "",
             "window_px": [int(win.width), int(win.height)],
             "res_m": round(res_m, 4),
             "lines": len(lines),
