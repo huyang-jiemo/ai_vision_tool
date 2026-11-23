@@ -563,9 +563,25 @@ def infer_vector_crs(path, *, roots=(), anchor_crs=None, anchor_bounds=None,
     target = _vector_bounds(path, layers)
     if target is None or _bbox_area(target) <= 0:
         return None
+    anchor_used = anchor_crs is not None and anchor_bounds is not None
+    # 最强证据：矢量原始范围与主输入几乎重合，说明它已经是主输入的坐标系
+    # （典型场景：本工具刚生成的正射成果 GDB）。此时无需再找邻近矢量。
+    if anchor_used:
+        try:
+            direct = _bbox_overlap_ratio(target, anchor_bounds)
+        except Exception:
+            direct = 0.0
+        if direct >= 0.8:
+            try:
+                c = horizontal_crs(anchor_crs)
+            except Exception:
+                c = None
+            if c is not None:
+                return InferredCRS(
+                    crs=c, source="", score=3.0,
+                    reason=f"矢量范围与主输入重合（{direct:.0%}），按主输入坐标系统一")
     best: list[dict] = []
     anchor_cache: dict[str, float | None] = {}
-    anchor_used = anchor_crs is not None and anchor_bounds is not None
     for shp in _iter_shapefiles(roots, max_candidates=max_candidates):
         # Shapefile 的 CRS 只存在于 .prj/.qpj；没有就无从判断，直接跳过。
         stem = os.path.splitext(shp)[0]
@@ -714,6 +730,17 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs",
         per_layer[name] = horizontal_crs(crs)
         counts[name] = nfeat
     if missing and user is None:
+        # 同一 GDB 内其他图层已有 CRS：缺失层几乎必然同系，直接沿用。
+        if per_layer:
+            ref_layer = max(per_layer, key=lambda n: counts.get(n, 0))
+            ref = per_layer[ref_layer]
+            for name in missing:
+                per_layer[name] = ref
+                counts.setdefault(name, 0)
+            origin = "inferred"
+            note = f"图层缺少坐标系，已沿用同数据集图层「{ref_layer}」的坐标系"
+            missing = []
+    if missing and user is None:
         inferred = infer_vector_crs(
             path, roots=infer_roots, anchor_crs=anchor_crs,
             anchor_bounds=anchor_bounds, layers=missing)
@@ -727,7 +754,7 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs",
             names = "、".join(missing[:5]) + ("…" if len(missing) > 5 else "")
             hint = "可填写数据实际使用的 EPSG:xxxx、粘贴 WKT，或选择 .prj 文件。"
             if infer_roots:
-                hint = ("已尝试按邻近矢量的坐标范围自动判断，但证据不足。"
+                hint = ("已尝试按矢量范围、底图与邻近数据自动判断，但证据不足。"
                         + hint)
             raise CRSMissingError(
                 f"矢量数据「{Path(path).name}」图层「{names}」缺少坐标系。"

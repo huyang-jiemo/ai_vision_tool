@@ -388,6 +388,46 @@ def test_crs_auto_inference() -> list[bool]:
         "用户填写优先于自动推断",
         user.origin == "user" and user.primary.to_epsg() == 4549,
         f"{user.origin}/{user.primary.to_epsg()}"))
+
+    # 本工具刚生成的正射成果：无 CRS，但范围落在底图内 → 直接按主输入统一。
+    # 不依赖任何邻近矢量（roots 为空）。
+    new = os.path.join(tmp, "输出", "正射提取.gdb")
+    os.makedirs(os.path.dirname(new), exist_ok=True)
+    ex, ey = tr.transform(114.36, 30.55)
+    x3857, y3857 = Transformer.from_crs(4547, 3857, always_xy=True).transform(ex, ey)
+    gpd.GeoDataFrame(
+        {"A": [1]},
+        geometry=[LineString([(x3857, y3857), (x3857 + 50, y3857 + 20)])]).to_file(
+        new, layer="lanes", driver="OpenFileGDB")
+    direct = coords.infer_vector_crs(
+        new, roots=[], anchor_crs=dom_crs, anchor_bounds=dom_bounds)
+    results += [
+        _check("矢量范围落在底图内 → 直接按主输入 CRS",
+               direct is not None and direct.crs.to_epsg() == 3857,
+               "None" if direct is None else coords.describe(direct.crs)),
+        _check("直接统一无需邻近矢量", direct is not None and "主输入" in direct.reason,
+               direct.reason if direct else ""),
+    ]
+    dinfo = coords.inspect_gdb_crs(
+        new, infer_roots=[], anchor_crs=dom_crs, anchor_bounds=dom_bounds)
+    results.append(_check(
+        "成果 GDB 缺 CRS 时自动统一并继续",
+        dinfo.origin == "inferred" and dinfo.primary.to_epsg() == 3857,
+        f"{dinfo.origin}/{dinfo.primary.to_epsg()}"))
+
+    # 同一 GDB 内部分图层有 CRS：缺失图层直接沿用，不应要求用户填写
+    mixed = os.path.join(tmp, "混合.gdb")
+    gpd.GeoDataFrame({"A": [1]}, geometry=[geom], crs=CRS.from_epsg(4547)).to_file(
+        mixed, layer="with_crs", driver="OpenFileGDB")
+    gpd.GeoDataFrame({"A": [1]}, geometry=[geom]).to_file(
+        mixed, layer="no_crs", driver="OpenFileGDB")
+    minfo = coords.inspect_gdb_crs(mixed)
+    results.append(_check(
+        "同数据集图层沿用已有 CRS",
+        minfo.origin == "inferred"
+        and minfo.per_layer["no_crs"].to_epsg() == 4547
+        and "沿用" in minfo.note,
+        f"{minfo.origin}/{minfo.per_layer.get('no_crs')}"))
     return results
 
 

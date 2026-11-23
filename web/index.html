@@ -265,7 +265,7 @@
         </div>
         <details class="crs-adv" id="domCrsAdv">
           <summary>坐标系（高级）</summary>
-          <p class="hint crs-adv__hint">影像与存量坐标系默认从文件读取；矢量缺坐标系时会按邻近数据的坐标范围自动判断，仅自动判断失败才需填写。输出默认跟随影像，可在此覆盖。支持 EPSG:xxxx、WKT 或 .prj 文件路径；长度/面积字段始终为米。</p>
+          <p class="hint crs-adv__hint">影像与存量坐标系默认从文件读取；矢量缺坐标系时按同数据集图层、邻近矢量与影像范围自动判断，仅全部失败才需填写。输出默认跟随影像，可在此覆盖。支持 EPSG:xxxx、WKT 或 .prj 文件路径；长度/面积字段始终为米。</p>
           <div class="cfg-grid">
             <div class="field field--text">
               <label class="field__lb" for="domInCrs">影像坐标系<span class="field__opt">（留空 = 读取文件）</span></label>
@@ -394,7 +394,7 @@
         </div>
         <details class="crs-adv" id="cmpCrsAdv">
           <summary>坐标系（高级）</summary>
-          <p class="hint crs-adv__hint">新成果/存量坐标系默认从文件逐层读取；缺失时按邻近矢量与底图范围自动判断，仅自动判断失败才需填写。输出默认跟随新成果。底图仅用于预览，缺坐标系时自动跳过预览与自动判断。支持 EPSG:xxxx、WKT 或 .prj 文件路径；匹配阈值始终按米。</p>
+          <p class="hint crs-adv__hint">新成果/存量坐标系默认从文件逐层读取；缺失时按同数据集图层、邻近矢量与底图范围自动判断，仅全部失败才需填写。输出默认跟随新成果。底图仅用于预览，缺坐标系时自动跳过预览与自动判断。支持 EPSG:xxxx、WKT 或 .prj 文件路径；匹配阈值始终按米。</p>
           <div class="cfg-grid">
             <div class="field field--text">
               <label class="field__lb" for="cmpNewCrs">新成果坐标系<span class="field__opt">（留空 = 自动读取/判断）</span></label>
