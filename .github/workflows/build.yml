@@ -21,6 +21,11 @@ jobs:
           pip install -r requirements-build.txt
       - name: Export YOLO11n -> ONNX
         run: python models/download_models.py
+      - name: Run regression self-tests
+        run: |
+          python tools/selftest_dom_crs.py
+          python tools/selftest_regressions.py
+          python tools/selftest_launcher.py
       - name: PyInstaller
         run: pyinstaller build.spec --noconfirm
       - name: Smoke test onedir app

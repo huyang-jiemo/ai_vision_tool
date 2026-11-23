@@ -183,6 +183,11 @@ def _run_selftest(mode: str):
                            else CRS.from_epsg(3857))
                     local = CRS.from_proj4(LOCAL_PROJ4)
                     lines.append(f"坐标系类型={coords.describe(src)}")
+                    src, note = coords.resolve_source_crs(
+                        src, dom.bounds, coords.dataset_esri_wkt(dom))
+                    if note:
+                        lines.append(f"坐标系修复={note}")
+                        lines.append(f"处理后坐标系={coords.describe(src)}")
                     lines.append(f"与本地 TM 同投影={coords.same_projection(src, local)}")
                     try:
                         tf = coords.build_transformer(src, local)

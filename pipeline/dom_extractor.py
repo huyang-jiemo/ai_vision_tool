@@ -122,6 +122,15 @@ class DomExtractor:
             raise RuntimeError(
                 f"无法解析影像坐标系（{dom.crs}）：{e}\n"
                 f"请在 ArcGIS Pro 中为该影像定义正确的坐标系后重试。") from e
+        raw_desc = coords.describe(src_crs)
+        # ArcGIS 导出的个别 GeoTIFF 会丢失投影参数（只剩坐标系名称），GDAL 将其
+        # 识别为 Engineering CRS。优先按元数据 ESRI PE String 还原；Web Mercator
+        # 名称 + 坐标范围吻合时按 EPSG:3857 处理，避免误报“无法建立转换”。
+        src_crs, crs_note = coords.resolve_source_crs(
+            src_crs, dom.bounds, coords.dataset_esri_wkt(dom))
+        if crs_note:
+            wlog(f"警告：影像坐标系「{raw_desc}」缺少投影参数，{crs_note}；"
+                 "如结果坐标不符，请在 ArcGIS Pro 中重新定义坐标系")
         local = CRS.from_proj4(LOCAL_PROJ4)
         wlog(f"影像坐标系：{coords.describe(src_crs)}")
         wlog(f"影像范围：{tuple(round(v, 1) for v in dom.bounds)}")

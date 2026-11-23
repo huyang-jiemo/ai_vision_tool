@@ -7,10 +7,14 @@
 1. 影像使用本地/未定义坐标系（GeoTIFF 只有 LOCAL_CS，PROJ 中为 Engineering
    CRS），PROJ 无法在它与武汉本地 TM 之间建立任何转换；
 2. 影像本来就是武汉本地 TM，但 datum 名称不同导致 `CRS.equals()` 为 False，
-   本不需要转换却走进了转换链路。
+   本不需要转换却走进了转换链路；
+3. ArcGIS 导出的部分 GeoTIFF 只保留坐标系名称（如
+   WGS_1984_Web_Mercator_Auxiliary_Sphere）、投影参数丢失，GDAL 退化为
+   Engineering CRS；按 ESRI PE String 或名称 + 坐标范围恢复为 EPSG:3857。
 
-本模块统一两种判断，保证：同投影直接跳过转换；本地坐标系且坐标范围与武汉
-本地 TM 吻合时按源坐标处理并告警；其余情况给出可执行的中文错误。
+本模块统一这些判断，保证：同投影直接跳过转换；本地坐标系且坐标范围与武汉
+本地 TM 吻合时按源坐标处理并告警；能恢复的 Web Mercator 先恢复再转换；
+其余情况给出可执行的中文错误。
 """
 from __future__ import annotations
 
@@ -83,6 +87,90 @@ def bounds_look_like_local_tm(bounds) -> bool:
                 and LOCAL_TM_Y_RANGE[0] <= cy <= LOCAL_TM_Y_RANGE[1])
     except Exception:
         return False
+
+
+# Web Mercator（EPSG:3857）的米制范围与常见 ESRI 名称。ArcGIS 导出的部分
+# GeoTIFF 只保留坐标系名称、丢失投影参数，GDAL 会退化成 Engineering CRS；
+# 名称与坐标范围同时吻合时按 EPSG:3857 处理。
+WEB_MERCATOR_EPSG = 3857
+_WEB_MERCATOR_MAX = 20037508.342789244
+
+
+def _looks_like_web_mercator_name(name: str) -> bool:
+    n = (name or "").lower()
+    return ("web_mercator" in n or "web mercator" in n
+            or "pseudo-mercator" in n or "pseudomercator" in n
+            or "auxiliary_sphere" in n)
+
+
+def bounds_look_like_web_mercator(bounds) -> bool:
+    """坐标范围是否符合 Web Mercator 米制坐标。
+
+    国内 Web Mercator 的 X 约 8.4e6~1.5e7，与武汉本地 TM（X≈8e5）量级明显
+    不同；要求 X 中心绝对值超过 1e6，可排除本地 TM 与普通局部坐标。
+    """
+    try:
+        left, bottom, right, top = (float(v) for v in bounds)
+        if any(abs(v) > _WEB_MERCATOR_MAX for v in (left, bottom, right, top)):
+            return False
+        cx = (left + right) / 2.0
+        cy = (bottom + top) / 2.0
+        return abs(cx) > 1.0e6 and abs(cy) < _WEB_MERCATOR_MAX
+    except Exception:
+        return False
+
+
+def dataset_esri_wkt(ds) -> str:
+    """读取 GeoTIFF 中 ArcGIS 写入的 ESRI PE String（完整投影 WKT）。
+
+    GDAL 通常会据此还原投影；个别导出文件只剩坐标系名称，导致 CRS 退化为
+    Engineering CRS。这里直接读原始元数据做兜底。
+    """
+    for ns in (None, "xml:ESRI", "ESRI"):
+        try:
+            tags = ds.tags(ns=ns) if ns else ds.tags()
+        except Exception:
+            continue
+        if not isinstance(tags, dict):
+            continue
+        for key, value in tags.items():
+            if not isinstance(value, str):
+                continue
+            k = str(key).upper().replace("_", " ")
+            v = value.lstrip().upper()
+            if "ESRI PE STRING" in k or v.startswith(("PROJCS[", "PROJCRS[")):
+                return value
+    return ""
+
+
+def resolve_source_crs(src_crs, bounds, metadata_wkt: str = ""):
+    """把影像坐标系规整为可用于转换的 CRS，返回 (CRS, 说明)。
+
+    ArcGIS 导出的部分 GeoTIFF 只保留坐标系名称、投影参数丢失，GDAL 会将其
+    识别为 Engineering CRS，PROJ 无法建立到武汉本地 TM 的转换。恢复顺序：
+    1. 元数据中的 ESRI PE String（完整 WKT）；
+    2. 名称为 Web Mercator 且坐标范围吻合 → EPSG:3857。
+    无法恢复时原样返回，交由 build_transformer 给出明确错误。
+    """
+    if src_crs is None:
+        from pyproj import CRS
+        return CRS.from_epsg(WEB_MERCATOR_EPSG), ""
+    if not getattr(src_crs, "is_engineering", False):
+        return src_crs, ""
+    if metadata_wkt:
+        try:
+            from pyproj import CRS
+            recovered = CRS.from_wkt(metadata_wkt)
+            if recovered.is_projected:
+                return recovered, f"已按元数据 ESRI PE String 识别为 {describe(recovered)}"
+        except Exception:
+            pass
+    if (_looks_like_web_mercator_name(getattr(src_crs, "name", ""))
+            and bounds_look_like_web_mercator(bounds)):
+        from pyproj import CRS
+        return CRS.from_epsg(WEB_MERCATOR_EPSG), \
+            "已按坐标系名称与坐标范围识别为 EPSG:3857（Web Mercator）"
+    return src_crs, ""
 
 
 def build_transformer(src_crs, dst_crs):
