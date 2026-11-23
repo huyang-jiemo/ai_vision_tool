@@ -7,7 +7,9 @@
 4. 存量 GDB 路径不存在 → INPUT_NOT_FOUND + 字段 stock_gdb；
 5. 比对新成果缺 CRS → CRS_REQUIRED + 字段 new_crs；
 6. 比对底图缺 CRS → 不阻断，返回 note，后台继续并跳过预览；
-7. 车载非法 pose_crs → CRS_INVALID + 字段 pose_crs。
+7. 车载非法 pose_crs → CRS_INVALID + 字段 pose_crs；
+8. 矢量缺 CRS → 按邻近矢量 + 底图范围自动推断，错误候选被排除；
+9. EPSG 文本带 BOM/零宽字符/全角冒号时仍能解析。
 
 用法：python tools/selftest_api_crs.py
 """
@@ -280,13 +282,109 @@ def test_pipeline_background_pose_error() -> list[bool]:
     return results
 
 
+def test_crs_auto_inference() -> list[bool]:
+    """矢量缺 CRS 时按邻近数据自动判断；错误候选应被底图锚点排除。
+
+    模拟现场：存量 GDB 无 CRS、同项目轨迹 SHP 带武汉 CGCS2000 3° 带 CRS，
+    另有一个原始坐标完全相同的错误候选（相邻 3° 带）。只有能与正射影像
+    范围重合的候选才应被采用；没有锚点且证据冲突时必须拒绝猜测。
+    """
+    import geopandas as gpd
+    from pyproj import CRS, Transformer
+    from rasterio.transform import from_bounds as rbounds
+    from shapely.geometry import LineString
+
+    from pipeline import coords
+
+    results = []
+    for text in ("\ufeffEPSG:4547", "EPSG:\u200b4547", "EPSG\uff1a4547"):
+        try:
+            epsg = coords.parse_crs(text).to_epsg()
+        except Exception:
+            epsg = None
+        results.append(_check(f"CRS 文本容错：{text!r}", epsg == 4547, str(epsg)))
+
+    tmp = tempfile.mkdtemp(prefix="api_crs_infer_")
+    stock = os.path.join(tmp, "工作", "stock.gdb")
+    os.makedirs(os.path.dirname(stock), exist_ok=True)
+    tr = Transformer.from_crs(4326, 4547, always_xy=True)
+    x, y = tr.transform(114.36, 30.55)
+    geom = LineString([(x, y), (x + 80.0, y + 40.0)])
+
+    gpd.GeoDataFrame({"A": [1]}, geometry=[geom]).to_file(
+        stock, layer="LTSL", driver="OpenFileGDB")
+    track_dir = os.path.join(tmp, "轨迹")
+    decoy_dir = os.path.join(tmp, "旧成果")
+    os.makedirs(track_dir, exist_ok=True)
+    os.makedirs(decoy_dir, exist_ok=True)
+    track = os.path.join(track_dir, "track.shp")
+    decoy = os.path.join(decoy_dir, "track.shp")
+    gpd.GeoDataFrame({"A": [1]}, geometry=[geom], crs=CRS.from_epsg(4547)).to_file(
+        track, driver="ESRI Shapefile")
+    # 原始数值完全相同、但标成相邻 3° 带（CM 117E）的错误候选
+    gpd.GeoDataFrame({"A": [1]}, geometry=[geom], crs=CRS.from_epsg(4548)).to_file(
+        decoy, driver="ESRI Shapefile")
+
+    dom = os.path.join(tmp, "影像", "dom.tif")
+    os.makedirs(os.path.dirname(dom), exist_ok=True)
+    b4547 = (x - 60.0, y - 60.0, x + 160.0, y + 160.0)
+    b3857 = coords.transform_bounds(b4547, CRS.from_epsg(4547), CRS.from_epsg(3857))
+    with rasterio.open(dom, "w", driver="GTiff", height=120, width=120, count=1,
+                       dtype="uint8", crs=CRS.from_epsg(3857),
+                       transform=rbounds(*b3857, 120, 120)) as ds:
+        ds.write(np.full((1, 120, 120), 90, np.uint8))
+    dom_crs = CRS.from_epsg(3857)
+    dom_bounds = b3857
+
+    results.append(_check(
+        "GDB 路径的搜索根是其父目录（不是 .gdb 内部）",
+        coords.inference_roots(stock)[:1] == [os.path.dirname(stock)],
+        str(coords.inference_roots(stock))))
+    roots = coords.inference_roots(dom, stock)
+    inf = coords.infer_vector_crs(
+        stock, roots=roots, anchor_crs=dom_crs, anchor_bounds=dom_bounds)
+    results += [
+        _check("有底图锚点 → 自动推断成功", inf is not None,
+               "None" if inf is None else coords.describe(inf.crs)),
+        _check("推断为正确 CRS（EPSG:4547）",
+               inf is not None and inf.crs.to_epsg() == 4547,
+               str(inf.crs.to_epsg()) if inf else ""),
+        _check("推断说明包含依据", inf is not None and "邻近矢量" in inf.reason,
+               inf.reason if inf else ""),
+        _check("错误候选被锚点排除",
+               coords.infer_vector_crs(
+                   stock, roots=[decoy_dir], anchor_crs=dom_crs,
+                   anchor_bounds=dom_bounds) is None),
+        _check("无锚点且候选冲突 → 不猜测",
+               coords.infer_vector_crs(stock, roots=roots) is None),
+    ]
+
+    info = coords.inspect_gdb_crs(
+        stock, infer_roots=roots, anchor_crs=dom_crs, anchor_bounds=dom_bounds)
+    results += [
+        _check("inspect_gdb_crs 使用推断结果",
+               info.origin == "inferred" and info.primary.to_epsg() == 4547,
+               f"{info.origin}/{info.primary.to_epsg()}"),
+        _check("推断结果写入报告 note", bool(info.report().get("note")),
+               info.report().get("note", "")),
+    ]
+    user = coords.inspect_gdb_crs(
+        stock, "EPSG:4549", infer_roots=roots, anchor_crs=dom_crs,
+        anchor_bounds=dom_bounds)
+    results.append(_check(
+        "用户填写优先于自动推断",
+        user.origin == "user" and user.primary.to_epsg() == 4549,
+        f"{user.origin}/{user.primary.to_epsg()}"))
+    return results
+
+
 def main() -> int:
     _utf8_stdout()
     results: list[bool] = []
     for fn in (test_dom_preflight_and_retry, test_dom_invalid_and_missing_stock,
                test_compare_preflight, test_pipeline_invalid_pose_crs,
                test_pipeline_invalid_params, test_state_guard,
-               test_pipeline_background_pose_error):
+               test_pipeline_background_pose_error, test_crs_auto_inference):
         try:
             results += fn()
         except Exception as e:   # noqa: BLE001

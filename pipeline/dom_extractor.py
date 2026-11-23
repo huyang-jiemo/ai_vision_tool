@@ -131,13 +131,21 @@ class DomExtractor:
              f"输出坐标系：{coords.crs_label(target_crs)}")
         wlog(f"影像范围：{tuple(round(v, 1) for v in dom.bounds)}")
 
-        # 存量 GDB：逐层读取真实 CRS；缺失层用 stock_crs，仍缺失则报错。
+        # 存量 GDB：逐层读取真实 CRS；缺失层用 stock_crs，仍缺失则按邻近
+        # 矢量与影像范围自动推断；证据不足才报错要求用户填写。
         stock_info = None
         if stock_gdb and Path(stock_gdb).exists():
             stock_info = coords.inspect_gdb_crs(
-                stock_gdb, stock_crs, field="stock_crs")
-            wlog(f"存量坐标系：{coords.crs_label(stock_info.primary)}"
-                 + ("（混合 CRS，逐层转换）" if stock_info.origin == "mixed" else ""))
+                stock_gdb, stock_crs, field="stock_crs",
+                infer_roots=coords.inference_roots(tif_path, stock_gdb),
+                anchor_crs=src_crs, anchor_bounds=dom.bounds)
+            if stock_info.origin == "mixed":
+                extra = "（混合 CRS，逐层转换）"
+            elif stock_info.origin == "inferred":
+                extra = f"（自动判断：{stock_info.note}）"
+            else:
+                extra = ""
+            wlog(f"存量坐标系：{coords.crs_label(stock_info.primary)}{extra}")
 
         # 处理范围：默认全图；启用存量裁剪时按其范围 + pad 裁剪（图幅更新场景）。
         # 裁剪与走廊是两个独立开关：不裁剪时仍可用存量构造道路走廊。

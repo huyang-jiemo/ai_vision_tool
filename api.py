@@ -333,12 +333,18 @@ class Api:
             import rasterio
             with rasterio.open(tif_path) as ds:
                 try:
-                    coords.resolve_raster_crs(ds, input_crs, field="input_crs")
+                    src_crs, _origin, _note = coords.resolve_raster_crs(
+                        ds, input_crs, field="input_crs")
                 except coords.CRSMissingError as e:
                     return _crs_error_payload(
                         e, candidates=coords.suggest_crs_candidates(ds.bounds))
-            if stock:
-                coords.inspect_gdb_crs(stock, stock_crs, field="stock_crs")
+                if stock:
+                    # 存量缺 CRS 时按邻近矢量 + 影像范围自动判断；
+                    # 只有证据不足才返回 CRS_REQUIRED 让用户填写。
+                    coords.inspect_gdb_crs(
+                        stock, stock_crs, field="stock_crs",
+                        infer_roots=coords.inference_roots(tif_path, stock),
+                        anchor_crs=src_crs, anchor_bounds=ds.bounds)
         except coords.CRSError as e:
             return _crs_error_payload(e)
         except Exception as e:
@@ -431,21 +437,31 @@ class Api:
             return {"started": False, "error": "存量 GDB 不存在",
                     "error_code": "INPUT_NOT_FOUND", "crs_field": "stock_gdb"}
         dom_note = ""
+        anchor_crs = anchor_bounds = None
         try:
             coords.parse_crs(output_crs, field="output_crs")
-            coords.inspect_gdb_crs(new_gdb, new_crs, field="new_crs")
-            coords.inspect_gdb_crs(stock_gdb, stock_crs, field="stock_crs")
+            # 先解析底图，作为“矢量缺 CRS”自动推断的锚点；底图缺失只影响
+            # 预览与推断，不阻断比对。
             if dom_tif:
                 import rasterio
                 try:
                     with rasterio.open(dom_tif) as ds:
-                        coords.resolve_raster_crs(ds, dom_crs, field="dom_crs")
+                        anchor_crs, _origin, _note = coords.resolve_raster_crs(
+                            ds, dom_crs, field="dom_crs")
+                        anchor_bounds = ds.bounds
                 except coords.CRSMissingError as e:
                     dom_note = f"比对预览将跳过：{e}"
                 except coords.CRSInvalidError:
                     raise
                 except Exception as e:
                     dom_note = f"比对预览将跳过：无法打开底图（{e}）"
+            infer_roots = coords.inference_roots(new_gdb, stock_gdb, dom_tif)
+            coords.inspect_gdb_crs(
+                new_gdb, new_crs, field="new_crs", infer_roots=infer_roots,
+                anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
+            coords.inspect_gdb_crs(
+                stock_gdb, stock_crs, field="stock_crs", infer_roots=infer_roots,
+                anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
         except coords.CRSError as e:
             return _crs_error_payload(e)
         except Exception as e:

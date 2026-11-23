@@ -36,16 +36,20 @@ class Comparator:
         self.iou_match = iou_match
 
     # ---------- 读取 ----------
-    def _load_layers(self, path, override=None, *, field="input_crs"):
+    def _load_layers(self, path, override=None, *, field="input_crs",
+                     infer_roots=(), anchor_crs=None, anchor_bounds=None):
         """返回 ({kind: [(layer, GeoSeries)]}, GdbCRS)。
 
-        图层 CRS 逐层从文件读取；缺失层用 override 修复，仍缺失则抛错。
+        图层 CRS 逐层从文件读取；缺失层用 override 修复，仍缺失则按邻近
+        矢量与底图范围自动推断，证据不足才抛错。
         GeoSeries 保留真实 CRS（尚未转工作系）。
         """
         import geopandas as gpd
         import pyogrio
         import shapely
-        info = coords.inspect_gdb_crs(path, override, field=field)
+        info = coords.inspect_gdb_crs(
+            path, override, field=field, infer_roots=infer_roots,
+            anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
         out = {"lines": [], "areas": [], "points": []}  # [(layer_name, geoseries)]
         for name, _geom_type in pyogrio.list_layers(path):
             if name.startswith("~") or name.endswith(".xlsx"):
@@ -224,10 +228,28 @@ class Comparator:
         t0 = time.time()
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
+        # 自动推断缺失 CRS 的依据：同项目目录下的邻近矢量，以及比对底图。
+        # 底图缺 CRS 只影响预览/推断，不阻断比对。
+        infer_roots = coords.inference_roots(new_gdb, stock_gdb, dom_tif)
+        anchor_crs = anchor_bounds = None
+        if dom_tif and Path(dom_tif).exists():
+            try:
+                import rasterio
+                with rasterio.open(dom_tif) as ds:
+                    anchor_crs, _origin, _note = coords.resolve_raster_crs(
+                        ds, dom_crs, field="dom_crs")
+                    anchor_bounds = ds.bounds
+            except coords.CRSMissingError as e:
+                wlog(f"警告：比对底图缺少坐标系，跳过底图与自动推断：{e}")
+
         wlog(f"读取新成果：{new_gdb}")
-        new_layers, new_info = self._load_layers(new_gdb, new_crs, field="new_crs")
+        new_layers, new_info = self._load_layers(
+            new_gdb, new_crs, field="new_crs", infer_roots=infer_roots,
+            anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
         wlog(f"读取存量：{stock_gdb}")
-        stock_layers, stock_info = self._load_layers(stock_gdb, stock_crs, field="stock_crs")
+        stock_layers, stock_info = self._load_layers(
+            stock_gdb, stock_crs, field="stock_crs", infer_roots=infer_roots,
+            anchor_crs=anchor_crs, anchor_bounds=anchor_bounds)
 
         source_crs = new_info.primary
         target_override = coords.parse_crs(output_crs, field="output_crs")
@@ -253,9 +275,17 @@ class Comparator:
             center_lon=lon_c, center_lat=lat_c,
             source_origin=new_info.origin,
             target_origin="user" if target_override is not None else "default:new")
-        wlog(f"新成果坐标系：{coords.crs_label(source_crs)}；"
+
+        def _origin_note(info):
+            if info.origin == "mixed":
+                return "（混合 CRS，逐层转换）"
+            if info.origin == "inferred":
+                return f"（自动判断：{info.note}）"
+            return ""
+
+        wlog(f"新成果坐标系：{coords.crs_label(source_crs)}{_origin_note(new_info)}；"
              f"存量坐标系：{coords.crs_label(stock_info.primary)}"
-             + ("（混合 CRS，逐层转换）" if stock_info.origin == "mixed" else ""))
+             + _origin_note(stock_info))
         wlog(f"工作坐标系：{coords.crs_label(plan.working_crs)}（{plan.working_reason}）；"
              f"输出坐标系：{coords.crs_label(plan.target_crs)}")
         if new_info.origin == "mixed":

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
@@ -92,6 +93,48 @@ def _as_crs(value):
     return value if isinstance(value, CRS) else CRS.from_user_input(value)
 
 
+# 粘贴自网页/文档的 CRS 常带不可见字符；全角冒号也会让 pyproj 无法识别。
+_CRS_INVISIBLE = dict.fromkeys(
+    map(ord, "\ufeff\u200b\u200c\u200d\u2060"), None)
+_PROJ_FALLBACK_DONE = False
+
+
+def _normalize_crs_text(text) -> str:
+    """去掉 BOM/零宽字符并归一化全角冒号，避免「看起来是 EPSG:4547」却解析失败。"""
+    return str(text).translate(_CRS_INVISIBLE).replace("：", ":").strip()
+
+
+def _retry_with_bundled_proj() -> bool:
+    """PROJ_DATA/PROJ_LIB 指向缺库目录时，切回 pyproj 随包数据库。
+
+    返回 True 表示已切换，调用方可重试；每个进程只尝试一次。
+    """
+    global _PROJ_FALLBACK_DONE
+    if _PROJ_FALLBACK_DONE:
+        return False
+    _PROJ_FALLBACK_DONE = True
+    try:
+        import pyproj
+        from pyproj import datadir
+        bundled = (Path(pyproj.__file__).resolve().parent
+                   / "proj_dir" / "share" / "proj")
+        if not (bundled / "proj.db").is_file():
+            return False
+        datadir.set_data_dir(str(bundled))
+        return True
+    except Exception:
+        return False
+
+
+def _as_crs_with_fallback(value):
+    try:
+        return _as_crs(value)
+    except Exception:
+        if not _retry_with_bundled_proj():
+            raise
+        return _as_crs(value)
+
+
 def usable_crs(crs) -> bool:
     """是否为可用于水平坐标转换的 2D CRS（排除工程/地心坐标系）。"""
     if crs is None:
@@ -138,10 +181,10 @@ def parse_crs(value, *, field: str = "crs", allow_none: bool = True):
             return None
         raise CRSMissingError("未提供坐标系。", field=field,
                               hint="请填写 EPSG:xxxx 或 WKT。")
-    text = str(value).strip()
+    text = _normalize_crs_text(value)
     # 资源管理器「复制为路径」会带引号
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
-        text = text[1:-1].strip()
+        text = _normalize_crs_text(text[1:-1])
     if not text:
         if allow_none:
             return None
@@ -150,17 +193,18 @@ def parse_crs(value, *, field: str = "crs", allow_none: bool = True):
     # 允许直接填 .prj/.wkt 文件路径
     if os.path.isfile(text) and text.lower().endswith((".prj", ".wkt", ".txt")):
         try:
-            text = Path(text).read_text(encoding="utf-8-sig", errors="replace").strip()
+            text = Path(text).read_text(
+                encoding="utf-8-sig", errors="replace").strip()
         except Exception as e:
             raise CRSInvalidError(
                 f"无法读取坐标系文件：{value}（{e}）", field=field,
                 hint="请确认文件可读，或直接填写 EPSG:xxxx / WKT。") from e
     try:
-        crs = _as_crs(text)
+        crs = _as_crs_with_fallback(text)
     except Exception as e:
         raise CRSInvalidError(
             f"坐标系无法识别：{value}（{e}）", field=field,
-            hint="示例：EPSG:4547、EPSG:4326，或粘贴 WKT / .prj 路径。") from e
+            hint="示例：EPSG:4326 或粘贴 WKT / .prj 路径。") from e
     return horizontal_crs(crs)
 
 
@@ -323,7 +367,7 @@ def resolve_raster_crs(ds, input_crs=None, *, field: str = "input_crs"):
     file_crs = None
     if raw:
         try:
-            file_crs = CRS.from_user_input(raw)
+            file_crs = _as_crs_with_fallback(raw)
         except Exception:
             file_crs = None
     if user is not None:
@@ -336,7 +380,7 @@ def resolve_raster_crs(ds, input_crs=None, *, field: str = "input_crs"):
     wkt = dataset_esri_wkt(ds)
     if wkt:
         try:
-            recovered = horizontal_crs(CRS.from_wkt(wkt))
+            recovered = horizontal_crs(_as_crs_with_fallback(wkt))
             return recovered, "esri_pe_string", "按文件元数据 ESRI PE String 恢复"
         except Exception:
             pass
@@ -352,6 +396,205 @@ def resolve_raster_crs(ds, input_crs=None, *, field: str = "input_crs"):
         detail=str(raw) if raw else "")
 
 
+# ------------------------------------------------------------- 矢量 CRS 推断
+
+@dataclass
+class InferredCRS:
+    crs: object
+    source: str
+    score: float
+    reason: str
+
+
+def inference_roots(*paths) -> list[str]:
+    """给缺 CRS 的矢量数据收集可搜索的邻近目录。
+
+    优先返回各路径的公共祖先（如 测试/），这样同项目下的轨迹 .shp/.prj
+    可以作为推断依据；公共祖先退化为磁盘根/用户目录时只保留各自父目录。
+    """
+    dirs: list[str] = []
+    for p in paths:
+        if not p:
+            continue
+        ap = os.path.abspath(str(p))
+        if os.path.isdir(ap) and ap.lower().endswith(".gdb"):
+            # FileGDB 本身是目录，但推断要搜索的是它所在的项目目录
+            d = os.path.dirname(ap)
+        elif os.path.isdir(ap):
+            d = ap
+        else:
+            d = os.path.dirname(ap)
+        if d and os.path.isdir(d) and d not in dirs:
+            dirs.append(d)
+    if not dirs:
+        return []
+    try:
+        common = os.path.commonpath(dirs)
+    except ValueError:
+        return dirs
+    # 根目录（POSIX "/" 或 Windows "D:\\"）与用户主目录范围过大，不能整盘扫描
+    at_root = os.path.dirname(common) == common
+    if common == os.path.expanduser("~"):
+        return dirs
+    if at_root:
+        # 仍然搜各自父目录，但不要把整个磁盘根当搜索起点
+        return [d for d in dirs if os.path.dirname(d) != d] or dirs
+    return [common] + [d for d in dirs if d != common]
+
+
+def _bbox_area(b) -> float:
+    return max(0.0, float(b[2]) - float(b[0])) * max(0.0, float(b[3]) - float(b[1]))
+
+
+def _bbox_inter_area(a, b) -> float:
+    iw = max(0.0, min(float(a[2]), float(b[2])) - max(float(a[0]), float(b[0])))
+    ih = max(0.0, min(float(a[3]), float(b[3])) - max(float(a[1]), float(b[1])))
+    return iw * ih
+
+
+def _bbox_cover_ratio(target, cand) -> float:
+    """候选范围覆盖目标范围的比例（目标完全落在候选内时为 1）。"""
+    denom = min(_bbox_area(target), _bbox_area(cand))
+    return _bbox_inter_area(target, cand) / denom if denom > 0 else 0.0
+
+
+def _bbox_overlap_ratio(a, b) -> float:
+    denom = min(_bbox_area(a), _bbox_area(b))
+    return _bbox_inter_area(a, b) / denom if denom > 0 else 0.0
+
+
+def _vector_bounds(path, layers=None):
+    """矢量数据集（可指定图层）的总范围；没有可用范围返回 None。"""
+    import pyogrio
+    try:
+        names = list(layers) if layers is not None else [
+            n for n, g in pyogrio.list_layers(path)
+            if g and not str(n).startswith("~") and not str(n).endswith(".xlsx")]
+    except Exception:
+        return None
+    boxes = []
+    for name in names:
+        b = None
+        try:
+            b = pyogrio.read_info(path, layer=name).get("total_bounds")
+        except Exception:
+            pass
+        if b is None or len(b) != 4:
+            try:
+                b = pyogrio.read_bounds(path, layer=name)
+            except Exception:
+                b = None
+        if b is not None and len(b) == 4:
+            vals = [float(v) for v in b]
+            if all(math.isfinite(v) for v in vals) and vals[2] >= vals[0] \
+                    and vals[3] >= vals[1]:
+                boxes.append(tuple(vals))
+    if not boxes:
+        return None
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
+def _iter_shapefiles(roots, *, max_candidates=80, max_depth=5):
+    seen: set[str] = set()
+    count = 0
+    for root in roots:
+        base = os.path.abspath(str(root))
+        if os.path.isfile(base):
+            base = os.path.dirname(base)
+        if not os.path.isdir(base) or base.lower().endswith(".gdb"):
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            rel = os.path.relpath(dirpath, base)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            if depth >= max_depth:
+                dirnames[:] = []
+            dirnames[:] = [
+                d for d in dirnames
+                if not d.startswith(".")
+                and d.lower() != "__macosx"
+                and not d.lower().endswith(".gdb")]
+            for fn in filenames:
+                if not fn.lower().endswith(".shp"):
+                    continue
+                fp = os.path.abspath(os.path.join(dirpath, fn))
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                yield fp
+                count += 1
+                if count >= max_candidates:
+                    return
+
+
+def infer_vector_crs(path, *, roots=(), anchor_crs=None, anchor_bounds=None,
+                     layers=None, max_candidates=80) -> InferredCRS | None:
+    """按邻近矢量的坐标范围推断缺失 CRS；证据不足时返回 None，不猜测。
+
+    两重证据：
+    1. 邻近 Shapefile 与目标数据的原始坐标范围高度重合（同一套坐标）；
+    2. 候选 CRS 转换到主输入 CRS 后，范围与主输入影像/成果重叠。
+
+    只有最佳候选明显领先（或与主输入重叠很强）才采用，避免静默用错坐标系。
+    """
+    import pyogrio
+    target = _vector_bounds(path, layers)
+    if target is None or _bbox_area(target) <= 0:
+        return None
+    best: dict[str, dict] = {}
+    anchor_used = anchor_crs is not None and anchor_bounds is not None
+    for shp in _iter_shapefiles(roots, max_candidates=max_candidates):
+        try:
+            info = pyogrio.read_info(shp)
+            raw = info.get("crs")
+            cb = info.get("total_bounds")
+            if not raw or cb is None or len(cb) != 4:
+                continue
+            cand = _as_crs_with_fallback(raw)
+            if not usable_crs(cand):
+                continue
+        except Exception:
+            continue
+        cb = tuple(float(v) for v in cb)
+        if not all(math.isfinite(v) for v in cb):
+            continue
+        raw_ratio = _bbox_cover_ratio(target, cb)
+        if raw_ratio < 0.3:
+            continue
+        anchor_ratio = 1.0
+        if anchor_crs is not None and anchor_bounds is not None:
+            try:
+                tb = transform_bounds(target, cand, anchor_crs)
+                anchor_ratio = _bbox_overlap_ratio(tb, anchor_bounds)
+            except Exception:
+                continue
+            if anchor_ratio < 0.05:
+                continue
+        score = 2.0 * anchor_ratio + raw_ratio
+        key = cand.to_epsg() or cand.name or str(cand)
+        old = best.get(key)
+        if old is None or score > old["score"]:
+            best[key] = {"crs": cand, "source": shp, "score": score,
+                         "raw": raw_ratio, "anchor": anchor_ratio}
+    if not best:
+        return None
+    ranked = sorted(best.values(), key=lambda d: d["score"], reverse=True)
+    top = ranked[0]
+    if len(ranked) > 1:
+        second = ranked[1]
+        # 多个不同 CRS 得分接近、又没有主输入范围可裁决 → 证据不足，不猜
+        if top["score"] - second["score"] < 0.5 and not anchor_used:
+            return None
+        if top["score"] - second["score"] < 0.5 and top["anchor"] < 0.8:
+            return None
+    reason = (f"按邻近矢量「{Path(top['source']).name}」的坐标范围推断"
+              f"（范围重合 {top['raw']:.0%}"
+              + (f"，与主输入重叠 {top['anchor']:.0%}" if anchor_crs is not None
+                 else "") + "）")
+    return InferredCRS(crs=horizontal_crs(top["crs"]),
+                       source=top["source"], score=top["score"], reason=reason)
+
+
 # ------------------------------------------------------------- 矢量 GDB CRS
 
 
@@ -362,6 +605,7 @@ class GdbCRS:
     primary: object = None
     distinct: list = dataclass_field(default_factory=list)
     origin: str = "file"
+    note: str = ""
 
     def report(self) -> dict:
         return {
@@ -369,18 +613,25 @@ class GdbCRS:
             "layers": {k: crs_label(v) for k, v in self.per_layer.items()},
             "distinct": [crs_label(c) for c in self.distinct],
             "origin": self.origin,
+            "note": self.note,
         }
 
 
-def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
-    """逐层读取矢量数据 CRS；缺失层用 override，仍缺失则报错。"""
+def inspect_gdb_crs(path, override=None, *, field: str = "input_crs",
+                    infer_roots=(), anchor_crs=None,
+                    anchor_bounds=None) -> GdbCRS:
+    """逐层读取矢量数据 CRS；缺失层用 override，仍缺失则尝试自动推断。
+
+    自动推断需要 ``infer_roots``（邻近目录）和/或主输入范围作为锚点；
+    证据不足时仍抛 ``CRSMissingError``，绝不静默猜测。
+    """
     import pyogrio
-    from pyproj import CRS
     user = parse_crs(override, field=field)
     per_layer: dict = {}
     counts: dict[str, int] = {}
     missing: list[str] = []
     origin = "user" if user is not None else "file"
+    note = ""
     # 跳过非空间表（list_layers 的几何类型为 None）：它们没有 CRS，
     # 也不参与裁剪/走廊/比对，不应因此阻断任务。
     layers = [(n, g) for n, g in pyogrio.list_layers(path)
@@ -396,7 +647,7 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
             nfeat = int(info.get("features") or 0)
             raw = info.get("crs")
             if raw:
-                crs = CRS.from_user_input(raw)
+                crs = _as_crs_with_fallback(raw)
                 if not usable_crs(crs):
                     crs = None
         except Exception:
@@ -413,13 +664,25 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
         per_layer[name] = horizontal_crs(crs)
         counts[name] = nfeat
     if missing and user is None:
-        names = "、".join(missing[:5]) + ("…" if len(missing) > 5 else "")
-        raise CRSMissingError(
-            f"矢量数据「{Path(path).name}」图层「{names}」缺少坐标系。"
-            f"请在对应的坐标系输入框中填写 EPSG:xxxx 或 WKT 后重试。",
-            field=field,
-            hint="可填写 EPSG:4547、EPSG:4326，或选择 .prj 文件。",
-            detail=f"layers={missing}")
+        inferred = infer_vector_crs(
+            path, roots=infer_roots, anchor_crs=anchor_crs,
+            anchor_bounds=anchor_bounds, layers=missing)
+        if inferred is not None:
+            for name in missing:
+                per_layer[name] = inferred.crs
+                counts.setdefault(name, 0)
+            origin = "inferred"
+            note = inferred.reason
+        else:
+            names = "、".join(missing[:5]) + ("…" if len(missing) > 5 else "")
+            hint = "可填写数据实际使用的 EPSG:xxxx、粘贴 WKT，或选择 .prj 文件。"
+            if infer_roots:
+                hint = ("已尝试按邻近矢量的坐标范围自动判断，但证据不足。"
+                        + hint)
+            raise CRSMissingError(
+                f"矢量数据「{Path(path).name}」图层「{names}」缺少坐标系。"
+                f"请在对应的坐标系输入框中填写 EPSG:xxxx 或 WKT 后重试。",
+                field=field, hint=hint, detail=f"layers={missing}")
     if not per_layer:
         raise CRSMissingError(
             f"矢量数据「{Path(path).name}」没有带有效坐标系的图层。", field=field)
@@ -432,7 +695,7 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
     primary_layer = max(counts, key=lambda n: counts.get(n, 0)) if counts else next(iter(per_layer))
     return GdbCRS(per_layer=per_layer, counts=counts,
                   primary=per_layer[primary_layer], distinct=distinct,
-                  origin=origin)
+                  origin=origin, note=note)
 
 
 # ---------------------------------------------------------------- WKT 写出
