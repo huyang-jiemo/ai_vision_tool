@@ -73,10 +73,12 @@ class GeoReferencer:
         up = world[2]
         if up >= -1e-6:
             return GeoPoint(pose.x, pose.y, 0.0, False)
-        t = -pose.alt / up  # 落地水平距离（米）
+        t = -pose.alt / up  # 射线参数，不是距离
         gx = pose.x + t * world[0]
         gy = pose.y + t * world[1]
-        return GeoPoint(gx, gy, t, True)
+        # DIST/AVGDIST 是地面水平距离；t 只在相机中心像素才等于水平距离。
+        dist = math.hypot(gx - pose.x, gy - pose.y)
+        return GeoPoint(gx, gy, dist, True)
 
     def bbox_bottom_center(self, x1: float, y2: float, pose: "CameraPose") -> GeoPoint:
         """bbox 底边中点 (x1,y2) → 地面坐标（目标落点）。"""

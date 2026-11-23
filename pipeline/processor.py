@@ -11,7 +11,9 @@ from .config import CATEGORY_CN, CLASS_CN
 from .change_detector import detect_changes
 from .crs_plan import make_plan
 from .data_loader import DataProject, prepare_poses, validate_pose_coordinates
-from .exporter import (export_lines_gdb, export_lines_shp, export_points_gdb,
+from .exporter import (WARNINGS as EXPORT_WARNINGS,
+                      clean_vector_outputs, clear_file_dataset,
+                      export_lines_gdb, export_lines_shp, export_points_gdb,
                       export_points_shp)
 from .georeference import GeoReferencer
 from .lane_detector import LaneDetector
@@ -136,7 +138,8 @@ class Pipeline:
             source_origin="lonlat",
             target_origin="user" if target_override is not None else "default:pose",
             force_local_tm=True)
-        prepare_poses(all_poses, pose_crs_obj, plan.working_crs)
+        prepare_poses(all_poses, pose_crs_obj, plan.working_crs,
+                      transformer=plan.to_working())
         log(f"位姿坐标系：{coords.crs_label(pose_crs_obj)}；"
             f"工作坐标系：{coords.crs_label(plan.working_crs)}；"
             f"输出坐标系：{coords.crs_label(plan.target_crs)}")
@@ -227,27 +230,50 @@ class Pipeline:
         # 导出每批次（shp/ 与 gdb/ 分区）；属性在 working 米制下计算，
         # 写盘前一次性转到目标 CRS。
         to_target = plan.to_target()
+        def _drain_export_warnings():
+            while EXPORT_WARNINGS:
+                self.errors.append(EXPORT_WARNINGS.pop(0))
+
         for sname, pts in session_points.items():
             lanes = session_lanes.get(sname, [])
             pts_out = self._transform_point_features(pts, to_target)
             lanes_out = self._transform_line_features(lanes, to_target)
             sp = sl = ""
             if export_shp:
-                sp = out / "shp" / f"result_{sname}.shp"
-                sl = out / "shp" / f"result_lanes_{sname}.shp"
-                export_points_shp(sp, pts_out, crs=plan.target_crs)
-                export_lines_shp(sl, lanes_out, crs=plan.target_crs)
+                shp_dir = out / "shp"
+                for prefix in (f"result_{sname}.", f"result_lanes_{sname}."):
+                    for msg in clean_vector_outputs(shp_dir, prefix=prefix):
+                        self.errors.append(msg)
+                sp = shp_dir / f"result_{sname}.shp"
+                sl = shp_dir / f"result_lanes_{sname}.shp"
+                try:
+                    export_points_shp(sp, pts_out, crs=plan.target_crs)
+                except Exception as e:
+                    self.errors.append(f"批次 {sname} 点 SHP 导出失败：{e}")
+                try:
+                    export_lines_shp(sl, lanes_out, crs=plan.target_crs)
+                except Exception as e:
+                    self.errors.append(f"批次 {sname} 线 SHP 导出失败：{e}")
+                sp = sp if sp.is_file() else ""
+                sl = sl if sl.is_file() else ""
             gdb_ok = False
             if export_gdb:
                 gdb = out / "gdb" / f"result_{sname}.gdb"
-                gdb_ok = (export_points_gdb(gdb, "detections", pts_out,
-                                            crs=plan.target_crs) and
-                          export_lines_gdb(gdb, "lanes", lanes_out,
-                                           crs=plan.target_crs))
-                if not gdb_ok:
-                    from .exporter import WARNINGS as _gdb_warn
-                    while _gdb_warn:
-                        self.errors.append(_gdb_warn.pop(0))
+                clear_error = clear_file_dataset(gdb)
+                if clear_error:
+                    self.errors.append(clear_error)
+                else:
+                    pts_ok = export_points_gdb(gdb, "detections", pts_out,
+                                               crs=plan.target_crs)
+                    lanes_ok = export_lines_gdb(gdb, "lanes", lanes_out,
+                                                crs=plan.target_crs)
+                    _drain_export_warnings()
+                    # 两类要素都为空时 exporter 不会创建 GDB，不能把路径
+                    # 当成本次成果；部分失败时也不保留残缺 GDB。
+                    gdb_ok = bool(pts_out or lanes_out) and gdb.exists() \
+                        and pts_ok and lanes_ok
+                    if not gdb_ok and gdb.exists():
+                        clear_file_dataset(gdb)
             cats = {}
             for p in pts:
                 c = CATEGORY_CN.get(p.get("class_id"))
@@ -260,6 +286,18 @@ class Pipeline:
         # 时序变化（v0.1 必做）：在 working 米制下匹配，导出前转目标 CRS
         change_count = 0
         change_path = ""
+        change_gdb_path = ""
+        change_gdb_obj = out / "gdb" / "result_change.gdb"
+        change_gdb_ok = True
+        # 复用输出目录时，本次即使没有变化也不能留下上次的变化图层。
+        if export_shp:
+            for msg in clean_vector_outputs(out / "shp", prefix="result_change."):
+                self.errors.append(msg)
+        if export_gdb:
+            clear_error = clear_file_dataset(change_gdb_obj)
+            if clear_error:
+                self.errors.append(clear_error)
+                change_gdb_ok = False
         if enable_change and len(session_points) >= 2:
             changes = detect_changes(session_points)
             change_count = len(changes)
@@ -270,18 +308,19 @@ class Pipeline:
                                      image=c.get("change_type", ""),
                                      dist=0.0, score=0.0) for c in changes]
                 change_feats = self._transform_point_features(change_feats, to_target)
-                cp = ""
                 if export_shp:
                     cp = out / "shp" / "result_change.shp"
-                    export_points_shp(cp, change_feats, crs=plan.target_crs)
-                if export_gdb:
-                    if not export_points_gdb(out / "gdb" / "result_change.gdb",
-                                             "changes", change_feats,
-                                             crs=plan.target_crs):
-                        from .exporter import WARNINGS as _gdb_warn
-                        while _gdb_warn:
-                            self.errors.append(_gdb_warn.pop(0))
-                change_path = str(cp) if cp else ""
+                    try:
+                        export_points_shp(cp, change_feats, crs=plan.target_crs)
+                        change_path = str(cp) if cp.is_file() else ""
+                    except Exception as e:
+                        self.errors.append(f"时序变化 SHP 导出失败：{e}")
+                if export_gdb and change_gdb_ok:
+                    gdb_ok = export_points_gdb(change_gdb_obj, "changes",
+                                               change_feats, crs=plan.target_crs)
+                    _drain_export_warnings()
+                    if gdb_ok and change_gdb_obj.exists():
+                        change_gdb_path = str(change_gdb_obj)
 
         import json
         report = {
@@ -291,6 +330,7 @@ class Pipeline:
             "per_session": per_session,
             "change_count": change_count,
             "change_path": change_path,
+            "change_gdb": change_gdb_path,
             "errors": self.errors,
         }
         report_path = out / "提取报告.json"

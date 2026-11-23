@@ -178,6 +178,28 @@ def is_projected_metric(crs) -> bool:
         return False
 
 
+class _ComposedTransformer:
+    """把多个 Transformer 依次串起来（中间 CRS 可取 datum 的默认转换）。"""
+
+    def __init__(self, steps):
+        self.steps = list(steps)
+
+    def transform(self, x, y):
+        for tf in self.steps:
+            x, y = tf.transform(x, y)
+        return x, y
+
+
+def compose_transformers(steps):
+    """组合转换器：过滤 None；空返回 None，单个直接返回。"""
+    live = [s for s in steps if s is not None]
+    if not live:
+        return None
+    if len(live) == 1:
+        return live[0]
+    return _ComposedTransformer(live)
+
+
 def build_transformer(src_crs, dst_crs, *, field: str | None = None):
     """同 CRS 返回 None，否则返回 always_xy 的 pyproj Transformer。"""
     if src_crs is None or dst_crs is None:
@@ -198,19 +220,9 @@ def build_transformer(src_crs, dst_crs, *, field: str | None = None):
             f"（{e}）", field=field, detail=str(e)) from e
 
 
-def transform_bounds(bounds, src_crs, dst_crs, densify_pts: int = 21):
-    """把边界框从 src 转到 dst；四边密度化后取包络。"""
+def transform_bounds_with(bounds, tf, densify_pts: int = 21):
+    """用给定转换器（可为 None）把边界框四边密度化后取包络。"""
     left, bottom, right, top = (float(v) for v in bounds)
-    if src_crs is None or dst_crs is None:
-        return (left, bottom, right, top)
-    src = _as_crs(src_crs)
-    dst = _as_crs(dst_crs)
-    try:
-        if src.equals(dst, ignore_axis_order=True):
-            return (left, bottom, right, top)
-    except Exception:
-        pass
-    tf = build_transformer(src, dst)
     if tf is None:
         return (left, bottom, right, top)
     xs: list[float] = []
@@ -229,9 +241,22 @@ def transform_bounds(bounds, src_crs, dst_crs, densify_pts: int = 21):
                 xs.append(float(xx))
                 ys.append(float(yy))
     if not xs:
-        raise CRSTransformError(
-            f"无法把范围 {bounds} 从「{describe(src)}」转换到「{describe(dst)}」。")
+        raise CRSTransformError(f"无法转换范围 {bounds}。")
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def transform_bounds(bounds, src_crs, dst_crs, densify_pts: int = 21):
+    """把边界框从 src 转到 dst；同 CRS 直接返回，否则密度化取包络。"""
+    box = tuple(float(v) for v in bounds)
+    if src_crs is None or dst_crs is None:
+        return box
+    try:
+        if _as_crs(src_crs).equals(_as_crs(dst_crs), ignore_axis_order=True):
+            return box
+    except Exception:
+        pass
+    return transform_bounds_with(
+        box, build_transformer(src_crs, dst_crs), densify_pts)
 
 
 def geographic_center(crs, bounds) -> tuple[float, float]:
@@ -239,8 +264,8 @@ def geographic_center(crs, bounds) -> tuple[float, float]:
     left, bottom, right, top = (float(v) for v in bounds)
     cx, cy = (left + right) / 2.0, (bottom + top) / 2.0
     c = _as_crs(crs)
-    if c.is_geographic:
-        return cx, cy
+    # 地理 CRS 也要转换：非 Greenwich 本初子午线（如 NTF Paris）或
+    # 非度单位（grad）时，原始 cx/cy 不能直接当作 WGS84 经纬度。
     from pyproj import Transformer
     tf = Transformer.from_crs(c, "EPSG:4326", always_xy=True)
     lon, lat = tf.transform(cx, cy)
@@ -414,9 +439,21 @@ def inspect_gdb_crs(path, override=None, *, field: str = "input_crs") -> GdbCRS:
 
 
 def crs_to_esri_wkt(crs) -> str:
-    """写 .prj 用：优先 ESRI WKT1，失败回退 WKT1/WKT2。"""
+    """写 .prj 用：优先 ESRI WKT1；带基准转换时改用 WKT1_GDAL。
+
+    ESRI WKT1 会把 BoundCRS 的 TOWGS84 只写进基准名称（如
+    ``D_Unknown_..._using_towgs84_...``），重新读取后转换参数丢失，坐标会
+    回退到 PROJ 默认基准转换。此时优先 WKT1_GDAL（保留 ``TOWGS84[...]``），
+    ArcGIS/QGIS 均可读取。
+    """
     c = _as_crs(crs)
-    for version in ("WKT1_ESRI", "WKT1_GDAL"):
+    try:
+        is_bound = bool(c.is_bound)
+    except Exception:
+        is_bound = False
+    versions = (("WKT1_GDAL", "WKT1_ESRI") if is_bound
+                else ("WKT1_ESRI", "WKT1_GDAL"))
+    for version in versions:
         try:
             wkt = c.to_wkt(version=version, pretty=True)
             if wkt:

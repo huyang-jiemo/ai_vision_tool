@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from . import coords, crs_plan
+from .exporter import clean_vector_outputs, clear_file_dataset
 from .imgio import read_rgb
 
 TILE = 2048
@@ -107,7 +108,7 @@ class DomExtractor:
         import rasterio
         import shapely
         from rasterio.windows import Window, from_bounds
-        from shapely.geometry import LineString, Polygon
+        from shapely.geometry import LineString, Polygon, box
 
         t0 = time.time()
         out = Path(out_dir)
@@ -143,9 +144,9 @@ class DomExtractor:
         if stock_info is not None and use_stock_clip:
             try:
                 b = self._stock_bounds(stock_gdb, stock_info, working_crs)
-                b_src = coords.transform_bounds(
+                b_src = coords.transform_bounds_with(
                     (b[0] - pad_m, b[1] - pad_m, b[2] + pad_m, b[3] + pad_m),
-                    working_crs, src_crs)
+                    plan.to_source())
                 win = from_bounds(*b_src, dom.transform)
                 win = win.intersection(rasterio.windows.Window(0, 0, dom.width, dom.height))
                 win = win.round_offsets().round_lengths()
@@ -229,6 +230,11 @@ class DomExtractor:
                 sub_t = dom.window_transform(sub)
                 tile_res_m = self._tile_res_m(dom, sub_t, sub, to_working)
                 wm, ym, road = self.masks(img)
+                # 每块只保留自己的 tile×tile 区域。读入的 overlap 像素仅用于
+                # 让跨块目标在块内完整成形；若把 overlap 段也写出，长线会在
+                # 相邻块各输出一次（端点不重合，merge_collinear 也合不了）。
+                own = box(0, 0, min(self.tile, c1 - c0),
+                          min(self.tile, r1 - r0))
                 for m in (wm, ym):
                     cnts, _ = cv2.findContours(m, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
                     for cnt in cnts:
@@ -236,48 +242,64 @@ class DomExtractor:
                         if r is None:
                             continue
                         kind, pts = r
-                        M = cv2.moments(cnt)
-                        if M["m00"] == 0:
+                        geom = (LineString(pts) if kind == "line"
+                                else Polygon(pts))
+                        if geom.is_empty:
                             continue
-                        pcx = M["m10"] / M["m00"] + c0
-                        pcy = M["m01"] / M["m00"] + r0
-                        if (pcx < self.overlap and ix > 0) or (pcy < self.overlap and iy > 0):
-                            continue  # 重叠带去重
-                        # 路面约束：采样点多数落在路面上才保留
-                        if kind == "line":
-                            ss = [pts[0], pts[1],
-                                  ((pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2)]
-                            on_road = sum(1 for p in ss
-                                          if 0 <= p[0] < road.shape[1] and 0 <= p[1] < road.shape[0]
-                                          and road[int(p[1]), int(p[0])] > 0)
-                            if on_road < 2:
+                        try:
+                            clipped = geom.intersection(own)
+                        except Exception:
+                            continue
+                        for part in shapely.get_parts([clipped]):
+                            if part.is_empty:
                                 continue
-                        else:
-                            poly_a = np.array(pts, np.float64)
-                            cxx, cyy = poly_a[:, 0].mean(), poly_a[:, 1].mean()
-                            if not (0 <= cxx < road.shape[1] and 0 <= cyy < road.shape[0]
-                                    and road[int(cyy), int(cxx)] > 0):
-                                continue
-                        world = [sub_t * (p[0], p[1]) for p in pts]
-                        if to_working is not None:
-                            xs = [p[0] for p in world]
-                            ys = [p[1] for p in world]
-                            tx, ty = to_working.transform(xs, ys)
-                            world = list(zip(tx, ty))
-                        # 存量走廊过滤（世界坐标为 working 米制）
-                        if corridor is not None:
-                            test = (LineString(world) if kind == "line"
-                                    else Polygon(world).representative_point())
-                            ok = (corridor.intersects(test) if kind == "line"
-                                  else corridor.contains(test))
-                            if not ok:
-                                continue
-                        if kind == "line":
-                            lines.append(LineString(world))
-                        else:
-                            p = Polygon(world)
-                            if p.is_valid and p.area >= self.min_area:
-                                polys.append(p)
+                            if kind == "line":
+                                if part.geom_type not in ("LineString", "LinearRing"):
+                                    continue
+                                pp = list(part.coords)
+                                if len(pp) < 2:
+                                    continue
+                                # 路面约束：首尾与中点多数落在路面上才保留
+                                ss = [pp[0], pp[-1],
+                                      ((pp[0][0] + pp[-1][0]) / 2,
+                                       (pp[0][1] + pp[-1][1]) / 2)]
+                                on_road = sum(
+                                    1 for p in ss
+                                    if 0 <= p[0] < road.shape[1]
+                                    and 0 <= p[1] < road.shape[0]
+                                    and road[int(p[1]), int(p[0])] > 0)
+                                if on_road < 2:
+                                    continue
+                                world = [sub_t * (p[0], p[1]) for p in pp]
+                            else:
+                                if part.geom_type != "Polygon":
+                                    continue
+                                cxx, cyy = part.representative_point().x, part.representative_point().y
+                                if not (0 <= cxx < road.shape[1]
+                                        and 0 <= cyy < road.shape[0]
+                                        and road[int(cyy), int(cxx)] > 0):
+                                    continue
+                                world = [sub_t * (p[0], p[1])
+                                         for p in part.exterior.coords]
+                            if to_working is not None:
+                                xs = [p[0] for p in world]
+                                ys = [p[1] for p in world]
+                                tx, ty = to_working.transform(xs, ys)
+                                world = list(zip(tx, ty))
+                            # 存量走廊过滤（世界坐标为 working 米制）
+                            if corridor is not None:
+                                test = (LineString(world) if kind == "line"
+                                        else Polygon(world).representative_point())
+                                ok = (corridor.intersects(test) if kind == "line"
+                                      else corridor.contains(test))
+                                if not ok:
+                                    continue
+                            if kind == "line":
+                                lines.append(LineString(world))
+                            else:
+                                p = Polygon(world)
+                                if p.is_valid and p.area >= self.min_area:
+                                    polys.append(p)
                 if progress_cb:
                     progress_cb(done, total, f"已处理 {done}/{total} 块")
 
@@ -298,50 +320,63 @@ class DomExtractor:
         polys_out = self._transform_geoms(polys, to_target)
         gdb_path = out / "正射提取.gdb"
         layers_written = []
-        try:
-            if lines_out:
-                gdf = gpd.GeoDataFrame(
-                    {"SID": [i + 1 for i in range(len(lines_out))],
-                     "LEN_M": [round(g.length, 2) for g in lines],
-                     "SRC": ["DOM"] * len(lines_out)},
-                    geometry=lines_out, crs=target_crs)
-                gdf.to_file(str(gdb_path), layer="lanes", driver="OpenFileGDB")
-                layers_written.append("lanes")
-            if polys_out:
-                gdf = gpd.GeoDataFrame(
-                    {"SID": [i + 1 for i in range(len(polys_out))],
-                     "AREA_M2": [round(g.area, 2) for g in polys],
-                     "SRC": ["DOM"] * len(polys_out)},
-                    geometry=polys_out, crs=target_crs)
-                gdf.to_file(str(gdb_path), layer="lane_areas", driver="OpenFileGDB")
-                layers_written.append("lane_areas")
-        except Exception as e:
-            wlog(f"GDB 写出失败：{e}")
+        # 复用输出目录时必须先删除旧 GDB，否则上次运行的图层会残留，
+        # 无要素时还会把旧成果当成本次结果报告。
+        gdb_error = clear_file_dataset(gdb_path)
+        if gdb_error:
+            wlog(f"GDB 无法重建：{gdb_error}")
+        else:
+            try:
+                if lines_out:
+                    gdf = gpd.GeoDataFrame(
+                        {"SID": [i + 1 for i in range(len(lines_out))],
+                         "LEN_M": [round(g.length, 2) for g in lines],
+                         "SRC": ["DOM"] * len(lines_out)},
+                        geometry=lines_out, crs=target_crs)
+                    gdf.to_file(str(gdb_path), layer="lanes", driver="OpenFileGDB")
+                    layers_written.append("lanes")
+                if polys_out:
+                    gdf = gpd.GeoDataFrame(
+                        {"SID": [i + 1 for i in range(len(polys_out))],
+                         "AREA_M2": [round(g.area, 2) for g in polys],
+                         "SRC": ["DOM"] * len(polys_out)},
+                        geometry=polys_out, crs=target_crs)
+                    gdf.to_file(str(gdb_path), layer="lane_areas", driver="OpenFileGDB")
+                    layers_written.append("lane_areas")
+            except Exception as e:
+                wlog(f"GDB 写出失败：{e}")
+        gdb_written = bool(layers_written) and gdb_path.exists()
         if progress_cb:
             progress_cb(total + 2, total + N_TAIL, "正在生成预览图…")
 
         shp_dir = out / "shp"
         shp_files = []
+        if shp_dir.is_dir():
+            for prefix in ("lanes.", "lane_areas."):
+                for msg in clean_vector_outputs(shp_dir, prefix=prefix):
+                    wlog(msg)
         if export_shp:
             try:
-                if shp_dir.exists():
-                    for old in shp_dir.glob("*"):
-                        if old.suffix.lower() in (".shp", ".dbf", ".shx", ".prj", ".cpg"):
-                            old.unlink()
-                else:
-                    shp_dir.mkdir(parents=True, exist_ok=True)
+                shp_dir.mkdir(parents=True, exist_ok=True)
                 if lines_out:
-                    gpd.GeoDataFrame({"SID": range(1, len(lines_out) + 1)},
-                                     geometry=lines_out, crs=target_crs
-                                     ).to_file(str(shp_dir / "lanes.shp"), encoding="utf-8")
+                    gpd.GeoDataFrame(
+                        {"SID": range(1, len(lines_out) + 1),
+                         "LEN_M": [round(g.length, 2) for g in lines],
+                         "SRC": ["DOM"] * len(lines_out)},
+                        geometry=lines_out, crs=target_crs
+                    ).to_file(str(shp_dir / "lanes.shp"), encoding="utf-8")
                     shp_files.append(str(shp_dir / "lanes.shp"))
                 if polys_out:
-                    gpd.GeoDataFrame({"SID": range(1, len(polys_out) + 1)},
-                                     geometry=polys_out, crs=target_crs
-                                     ).to_file(str(shp_dir / "lane_areas.shp"), encoding="utf-8")
+                    gpd.GeoDataFrame(
+                        {"SID": range(1, len(polys_out) + 1),
+                         "AREA_M2": [round(g.area, 2) for g in polys],
+                         "SRC": ["DOM"] * len(polys_out)},
+                        geometry=polys_out, crs=target_crs
+                    ).to_file(str(shp_dir / "lane_areas.shp"), encoding="utf-8")
                     shp_files.append(str(shp_dir / "lane_areas.shp"))
             except Exception as e:
                 wlog(f"SHP 写出失败：{e}")
+        shp_files = [p for p in shp_files if Path(p).is_file()]
 
         # 预览图：工作系几何需反变换回 DOM 源 CRS 才能叠加到影像上。
         preview = str(out / "提取预览.png")
@@ -363,7 +398,7 @@ class DomExtractor:
             "res_m": round(res_m, 4),
             "lines": len(lines),
             "areas": len(polys),
-            "gdb": str(gdb_path),
+            "gdb": str(gdb_path) if gdb_written else "",
             "layers": layers_written,
             "shp": shp_files,
             "preview": preview,
@@ -496,8 +531,8 @@ class DomExtractor:
                                 pts = hpts + gpts
                             elif a == 1 and b == 1:
                                 pts = gpts + hpts[::-1]
-                            else:
-                                pts = hpts + gpts
+                            else:   # a == 0 and b == 0：两条线同向，h 需反向
+                                pts = hpts[::-1] + gpts
                             # 方向一致性（避免把拐角连成一条）
                             v1 = np.array(pts[1]) - np.array(pts[0])
                             v2 = np.array(pts[-1]) - np.array(pts[-2])

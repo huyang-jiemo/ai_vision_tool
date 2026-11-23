@@ -51,6 +51,19 @@ class ImageRecord:
     filename: str
 
 
+def _warn(message: str) -> None:
+    """跨平台告警输出：Windows 控制台可能不支持中文，不能因此中断加载。"""
+    import sys
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        try:
+            sys.stderr.buffer.write((message + "\n").encode("utf-8", "replace"))
+            sys.stderr.flush()
+        except Exception:
+            pass
+
+
 def _parse_ts(col0: str) -> datetime | None:
     m = _TS_RE.search(col0)
     if not m:
@@ -80,11 +93,21 @@ def _load_hdi(path: Path):
     """
     import math
     poses = []
+    started = False
     text = path.read_text(encoding="utf-8", errors="replace")
     for i, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
         c = line.split("\t")
         if len(c) < 21:
-            continue
+            # 表头/说明行（通常无制表符）可以跳过；数据开始后或明显是
+            # 制表符分隔的截断行必须报错，否则会静默错位配对。
+            if not started and line.count("\t") < 5:
+                continue
+            raise PoseDataError(
+                f"位姿文件「{path.name}」第 {i} 行只有 {len(c)} 列"
+                f"（应为 21 列），请检查文件是否被截断。", line=i)
+        started = True
         try:
             lon, lat = float(c[12]), float(c[13])
             alt, heading = float(c[11]), float(c[14])
@@ -133,14 +156,19 @@ def validate_pose_coordinates(poses):
     return (min(lons), min(lats), max(lons), max(lats))
 
 
-def prepare_poses(poses, pose_crs, working_crs) -> None:
-    """把位姿经纬度批量转换到 working_crs，写入 pose.x/pose.y（米）。"""
+def prepare_poses(poses, pose_crs, working_crs, transformer=None) -> None:
+    """把位姿经纬度批量转换到 working_crs，写入 pose.x/pose.y（米）。
+
+    ``transformer`` 可由 CRSPlan.to_working() 提供（经目标 CRS 中转，保留
+    PROJ 默认基准转换）；为空时直接按 pose_crs→working_crs 建立。
+    """
     if not poses:
         return
     from . import coords
     lon = [float(p.lon) for p in poses]
     lat = [float(p.lat) for p in poses]
-    tf = coords.build_transformer(pose_crs, working_crs, field="pose_crs")
+    tf = transformer if transformer is not None else \
+        coords.build_transformer(pose_crs, working_crs, field="pose_crs")
     if tf is None:
         # 同一 CRS：按经纬度列即平面坐标处理（车载正常流程不会走到这里，
         # 因为 working 始终是局部 TM）
@@ -226,7 +254,8 @@ class DataProject:
                 continue
             if len(imgs) != len(poses):
                 # 容错：取交集，避免某期次缺数据导致整体崩溃
-                print(f"[warn] 期次 {session}: 影像 {len(imgs)} 张 / 位姿 {len(poses)} 条，按 min={n} 配对")
+                _warn(f"[warn] 期次 {session}: 影像 {len(imgs)} 张 / "
+                      f"位姿 {len(poses)} 条，按 min={n} 配对")
             recs = [ImageRecord(session=session, index=i, path=p, filename=p.name)
                     for i, p in enumerate(imgs[:n])]
             for i, p in enumerate(poses[:n]):

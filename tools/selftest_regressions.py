@@ -110,6 +110,7 @@ def _write_dom(path: str, img: np.ndarray, crs,
 
 def test_dom_tiles() -> None:
     from pipeline.dom_extractor import DomExtractor
+    from shapely.geometry import LineString
 
     tmp = tempfile.mkdtemp(prefix="dom_tiles_")
 
@@ -129,6 +130,50 @@ def test_dom_tiles() -> None:
     _write_dom(gtif, gray, "EPSG:4547")
     rep = DomExtractor().run(gtif, os.path.join(tmp, "out_gray"), wlog=lambda _s: None)
     check("1 波段灰度 DOM 可提取", rep["lines"] >= 1, f"lines={rep['lines']}")
+
+    # 跨越两个分块的长直线：overlap 段不得重复输出，合并后应是一条完整线
+    long_img = np.full((600, 3000, 3), 90, np.uint8)
+    long_img[300:310, 100:2900] = 235
+    long_tif = os.path.join(tmp, "long_line.tif")
+    _write_dom(long_tif, long_img, "EPSG:4547")
+    long_out = os.path.join(tmp, "out_long")
+    rep = DomExtractor().run(long_tif, long_out, export_shp=True,
+                             wlog=lambda _s: None)
+    import geopandas as gpd
+    g = gpd.read_file(os.path.join(long_out, "正射提取.gdb"), layer="lanes")
+    max_len = float(g["LEN_M"].max()) if len(g) else 0.0
+    check("跨分块长线不重复且长度正确",
+          rep["lines"] == 1 and 270.0 <= max_len <= 290.0,
+          f"lines={rep['lines']} max_len={max_len:.2f}m")
+    sg = gpd.read_file(os.path.join(long_out, "shp", "lanes.shp"))
+    check("DOM SHP 线层含 LEN_M/SRC 属性",
+          {"LEN_M", "SRC"}.issubset(sg.columns) and len(sg) == 1,
+          str(list(sg.columns)))
+
+    # 复用输出目录且本次无要素：旧 GDB/SHP 必须清除，报告不能指向旧成果
+    empty_out = os.path.join(tmp, "out_empty")
+    os.makedirs(empty_out, exist_ok=True)
+    stale_gdb = os.path.join(empty_out, "正射提取.gdb")
+    stale_geom = (g.geometry.iloc[0] if len(g)
+                  else LineString([(0, 0), (1, 1)]))
+    gpd.GeoDataFrame(
+        {"SID": [1]}, geometry=[stale_geom],
+        crs="EPSG:4547").to_file(stale_gdb, layer="lanes", driver="OpenFileGDB")
+    shp_dir = os.path.join(empty_out, "shp")
+    os.makedirs(shp_dir, exist_ok=True)
+    for name in ("lanes.shp", "lanes.dbf", "lanes.qix", "lanes.sbn"):
+        with open(os.path.join(shp_dir, name), "wb") as f:
+            f.write(b"stale")
+    bare = np.full((200, 200, 3), 90, np.uint8)
+    bare_tif = os.path.join(tmp, "bare.tif")
+    _write_dom(bare_tif, bare, "EPSG:4547")
+    brep = DomExtractor().run(bare_tif, empty_out, export_shp=True,
+                              wlog=lambda _s: None)
+    check("无要素时旧 GDB 已清除且不报告路径",
+          brep["lines"] == 0 and not os.path.exists(stale_gdb)
+          and brep["gdb"] == "", f"gdb={brep['gdb']!r} lines={brep['lines']}")
+    check("无要素时旧 SHP/sidecar 已清除",
+          not any(os.scandir(shp_dir)), str(os.listdir(shp_dir)))
 
 
 # ------------------------------------------------------------ 比对窗口裁剪
@@ -206,6 +251,118 @@ def test_comparator_cross_crs() -> None:
     check("变化 GDB 图层 CRS = 4547", got == 4547, str(got))
 
 
+def test_line_coverage_length() -> None:
+    """覆盖长度必须按线长计算；缓冲面周长会把 40% 覆盖误判为 82%。"""
+    import geopandas as gpd
+    from shapely.geometry import LineString
+    from pipeline.comparator import Comparator
+
+    cmp = Comparator()
+    ref = gpd.GeoSeries([LineString([(0, 0), (100, 0)])], crs="EPSG:4547")
+    partial = gpd.GeoSeries([LineString([(0, 0), (40, 0)])], crs="EPSG:4547")
+    pairs, new_only, missing, modified = cmp._match_lines(partial, ref)
+    check("40% 覆盖不应判为匹配",
+          not pairs and len(modified) == 1 and not missing and not new_only,
+          f"pairs={pairs} modified={modified} missing={missing} new={new_only}")
+    # 两段新线合计覆盖 60%，应视为匹配（多段覆盖）
+    two = gpd.GeoSeries([LineString([(0, 0), (30, 0)]),
+                         LineString([(70, 0), (100, 0)])], crs="EPSG:4547")
+    pairs, new_only, missing, modified = cmp._match_lines(two, ref)
+    check("多段合计覆盖 ≥50% 判为匹配",
+          len(pairs) == 1 and not missing and not new_only and not modified,
+          f"pairs={pairs} modified={modified} missing={missing} new={new_only}")
+
+
+def test_comparator_stale_outputs() -> None:
+    """无变化时复用输出目录：旧变化 GDB/SHP 必须清除且报告为空。"""
+    import geopandas as gpd
+    from shapely.geometry import Point
+    from pipeline.comparator import Comparator
+
+    tmp = tempfile.mkdtemp(prefix="cmp_stale_")
+    new = os.path.join(tmp, "new.gdb")
+    stock = os.path.join(tmp, "stock.gdb")
+    for p in (new, stock):
+        gpd.GeoDataFrame(
+            {"A": [1]}, geometry=[Point(500010, 3387005)],
+            crs="EPSG:4547").to_file(p, layer="signs", driver="OpenFileGDB")
+    out = os.path.join(tmp, "out")
+    os.makedirs(out, exist_ok=True)
+    stale_gdb = os.path.join(out, "变化比对.gdb")
+    gpd.GeoDataFrame(
+        {"A": [1]}, geometry=[Point(0, 0)],
+        crs="EPSG:4547").to_file(stale_gdb, layer="chg_new_points",
+                                 driver="OpenFileGDB")
+    shp_dir = os.path.join(out, "shp")
+    os.makedirs(shp_dir, exist_ok=True)
+    for name in ("chg_new_points.shp", "chg_new_points.dbf", "chg_new_points.qix"):
+        with open(os.path.join(shp_dir, name), "wb") as f:
+            f.write(b"stale")
+    res = Comparator().run(new, stock, out)
+    check("无变化时旧变化 GDB 已清除且报告为空",
+          res["change_gdb"] == "" and not os.path.exists(stale_gdb),
+          f"change_gdb={res['change_gdb']!r}")
+    check("无变化时旧变化 SHP/sidecar 已清除",
+          not os.listdir(shp_dir), str(os.listdir(shp_dir)))
+
+
+def test_local_tm_datum_chain() -> None:
+    """局部 TM 必须保留目标基准转换；ED50 等默认转换不能退化为 ballpark。"""
+    import math
+    from types import SimpleNamespace
+
+    from pyproj import CRS, Transformer
+    from pipeline.crs_plan import make_plan
+    from pipeline.data_loader import prepare_poses
+
+    src = CRS.from_epsg(4326)
+    tgt = CRS.from_epsg(23032)   # ED50 / UTM zone 32N
+    plan = make_plan(src, tgt, center_lon=9.0, center_lat=52.0,
+                     force_local_tm=True)
+    direct = Transformer.from_crs(src, plan.working_crs,
+                                  always_xy=True).transform(9.0, 52.0)
+    via = plan.to_working().transform(9.0, 52.0)
+    diff = math.hypot(direct[0] - via[0], direct[1] - via[1])
+    check("局部 TM 经目标基准转换（ED50 不退化为 ballpark）",
+          10.0 < diff < 500.0, f"直接/中转相差 {diff:.1f}m")
+
+    pose = SimpleNamespace(lon=9.0, lat=52.0, x=0.0, y=0.0,
+                           session="s", image_filename="i")
+    prepare_poses([pose], src, plan.working_crs,
+                  transformer=plan.to_working())
+    check("prepare_poses 使用中转转换链",
+          math.hypot(pose.x - via[0], pose.y - via[1]) < 1e-6,
+          f"({pose.x:.3f},{pose.y:.3f}) vs {via}")
+
+    bound = CRS.from_proj4(
+        "+proj=tmerc +lat_0=0 +lon_0=114 +k=1 +x_0=500000 +y_0=0 "
+        "+ellps=IAU76 +towgs84=-24.4,112.9,-54.8,0,0,0,0 +units=m +no_defs")
+    p2 = make_plan(bound, None, center_lon=114.3, center_lat=30.6,
+                   force_local_tm=True)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        proj4 = p2.working_crs.to_proj4()
+    check("局部 TM 保留自定义 TOWGS84",
+          "towgs84" in proj4.lower(), proj4)
+
+
+def test_prj_bound_crs() -> None:
+    """带 TOWGS84 的自定义 CRS 写 .prj 时不能丢基准转换。"""
+    from pyproj import CRS
+    from pipeline import coords
+
+    c = CRS.from_proj4(
+        "+proj=tmerc +lat_0=0 +lon_0=114 +k=1 +x_0=500000 +y_0=0 "
+        "+ellps=IAU76 +towgs84=-24.4,112.9,-54.8,0,0,0,0 +units=m +no_defs")
+    wkt = coords.crs_to_esri_wkt(c)
+    back = CRS.from_wkt(wkt)
+    check("自定义 TOWGS84 的 .prj 保留基准转换",
+          "TOWGS84" in wkt and back.is_bound, wkt.splitlines()[0] if wkt else "")
+    plain = coords.crs_to_esri_wkt(CRS.from_epsg(4547))
+    check("普通投影仍写 ESRI WKT", "PROJCS" in plain and "TOWGS84" not in plain)
+
+
 def test_comparator_missing_crs() -> None:
     import geopandas as gpd
     from shapely.geometry import Point
@@ -265,6 +422,9 @@ def main() -> int:
     _utf8_stdout()
     tests = (test_change_detector, test_read_rgb, test_dom_tiles,
              test_comparator_edge, test_comparator_cross_crs,
+             test_line_coverage_length,
+             test_comparator_stale_outputs, test_local_tm_datum_chain,
+             test_prj_bound_crs,
              test_comparator_missing_crs, test_comparator_nonspatial_table)
     for fn in tests:
         try:

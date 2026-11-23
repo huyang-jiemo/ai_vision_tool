@@ -48,11 +48,26 @@ def _datum_params(target_crs) -> str:
     parts: list[str] = []
     try:
         import warnings
+        dicts: list[dict] = []
         with warnings.catch_warnings():
             # 仅提取 datum/椭球参数，避免 pyproj 的 PROJ 字符串信息损失提示
             warnings.simplefilter("ignore")
-            d = geod.to_dict()
-        datum = d.get("datum")
+            for c in (target_crs, geod):
+                try:
+                    dicts.append(c.to_dict())
+                except Exception:
+                    continue
+
+        def first(key):
+            for d in dicts:
+                val = d.get(key)
+                if val:
+                    return val
+            return None
+
+        # BoundCRS（自定义 WKT 的 TOWGS84）在 geodetic_crs.to_dict() 里会丢掉
+        # 基准转换参数，必须优先从投影/BoundCRS 自身的 dict 取。
+        datum = first("datum")
         if datum:
             parts.append(f"+datum={datum}")
         else:
@@ -65,7 +80,7 @@ def _datum_params(target_crs) -> str:
             elif a > 0 and b > 0:
                 parts.append(f"+a={a:.6f} +b={b:.6f}")
         for key in ("towgs84", "nadgrids"):
-            val = d.get(key)
+            val = first(key)
             if val:
                 if isinstance(val, (list, tuple)):
                     val = ",".join(str(x) for x in val)
@@ -123,13 +138,31 @@ class CRSPlan:
         return self._tf_cache[key]
 
     def to_working(self):
-        return self.transformer(self.source_crs, self.working_crs)
+        # 经目标 CRS 中转：目标基准没有显式 TOWGS84 时（如 ED50/Tokyo），
+        # 直接 source→local_tm 会走 ballpark、丢掉 PROJ 的默认基准转换；
+        # source→target 使用 PROJ 为该目标选定的转换，再 target→working
+        # 是同一基准内的投影换算。
+        return coords.compose_transformers([
+            self.transformer(self.source_crs, self.target_crs),
+            self.transformer(self.target_crs, self.working_crs),
+        ])
 
     def to_target(self):
         return self.transformer(self.working_crs, self.target_crs)
 
     def to_source(self):
-        return self.transformer(self.working_crs, self.source_crs)
+        # 与 to_working 严格互逆：working→target→source。
+        return coords.compose_transformers([
+            self.transformer(self.working_crs, self.target_crs),
+            self.transformer(self.target_crs, self.source_crs),
+        ])
+
+    def to_via_target(self, dst_crs):
+        """working → target → dst；用于比对预览叠到另一 CRS 的底图。"""
+        return coords.compose_transformers([
+            self.transformer(self.working_crs, self.target_crs),
+            self.transformer(self.target_crs, dst_crs),
+        ])
 
     def report(self) -> dict:
         return {

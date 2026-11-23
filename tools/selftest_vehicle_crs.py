@@ -227,6 +227,107 @@ def test_invalid_pose() -> list[bool]:
     ]
 
 
+def test_truncated_hdi_row_rejected() -> list[bool]:
+    """数据行少于 21 列必须报错，不能静默跳过造成位姿/影像错位。"""
+    from pipeline.data_loader import DataProject
+
+    tmp = tempfile.mkdtemp(prefix="veh_crs_trunc_")
+    data = os.path.join(tmp, "data")
+    _make_project(data)
+    hdi = os.path.join(data, "轨迹", SESSIONS[0], "iScan-Image-1.hdi")
+    cols = _hdi_line(2, 114.3002, 30.6002).split("\t")
+    with open(hdi, "a", encoding="utf-8") as f:
+        f.write("\t".join(cols[:20]) + "\n")   # 截断掉最后一列
+    err = None
+    try:
+        DataProject.load(data)
+    except PoseDataError as e:
+        err = e
+    return [
+        _check("截断的 HDI 数据行 → POSE_COORDINATES_INVALID",
+               err is not None and err.code == "POSE_COORDINATES_INVALID",
+               str(err) if err else "未抛错"),
+        _check("截断行号可定位", err is not None and err.line == 4,
+               f"line={getattr(err, 'line', None)}"),
+    ]
+
+
+class EmptyDetector:
+    """不返回任何目标；平灰影像也不会产生车道线。"""
+
+    def detect(self, img):
+        return []
+
+
+def test_empty_outputs_removed() -> list[bool]:
+    """复用输出目录且无要素时，旧 GDB 不得留存或被当作本次成果。"""
+    import geopandas as gpd
+    import shapefile
+    from shapely.geometry import Point
+
+    tmp = tempfile.mkdtemp(prefix="veh_crs_empty_")
+    data = os.path.join(tmp, "data")
+    _make_project(data)
+    out = os.path.join(tmp, "out")
+    sess = SESSIONS[0]
+    stale_gdb = os.path.join(out, "gdb", f"result_{sess}.gdb")
+    os.makedirs(os.path.dirname(stale_gdb), exist_ok=True)
+    gpd.GeoDataFrame(
+        {"A": [1]}, geometry=[Point(0, 0)],
+        crs="EPSG:4326").to_file(stale_gdb, layer="detections",
+                                 driver="OpenFileGDB")
+    shp_dir = os.path.join(out, "shp")
+    os.makedirs(shp_dir, exist_ok=True)
+    stale_qix = os.path.join(shp_dir, f"result_lanes_{sess}.qix")
+    for name in (f"result_{sess}.shp", f"result_lanes_{sess}.shp"):
+        with open(os.path.join(shp_dir, name), "wb") as f:
+            f.write(b"stale")
+    with open(stale_qix, "wb") as f:
+        f.write(b"stale")
+    res = Pipeline(_config(), EmptyDetector()).process_project(
+        data, out, export_shp=True, export_gdb=True, wlog=lambda _s: None)
+    info = res.per_session.get(sess, {})
+    shp = info.get("shp", "")
+    n = len(shapefile.Reader(shp).records()) if shp and os.path.isfile(shp) else -1
+    return [
+        _check("无检测时旧 GDB 清除且不报告路径",
+               res.errors == [] and info.get("gdb", "") == ""
+               and not os.path.exists(stale_gdb),
+               f"gdb={info.get('gdb')!r} errors={res.errors}"),
+        _check("无检测时 SHP 为本次空图层",
+               n == 0, f"records={n} shp={shp!r}"),
+        _check("旧 SHP 索引文件已清除",
+               not os.path.exists(stale_qix), stale_qix),
+        _check("无检测时仍报告 0 个要素",
+               info.get("det") == 0 and info.get("lane") == 0, str(info)),
+    ]
+
+
+def test_geo_distance_is_horizontal() -> list[bool]:
+    """DIST 必须是地面水平距离，不能是射线参数 t。"""
+    import math
+    from pipeline.georeference import GeoReferencer
+
+    geo = GeoReferencer(_config())
+    pose = SimpleNamespace(x=0.0, y=0.0, alt=1.5, heading=0.0,
+                           pitch=-45.0, roll=0.0)
+    center = geo.pixel_to_ground(IMG_W / 2.0, IMG_H / 2.0, pose)
+    off = geo.pixel_to_ground(IMG_W / 2.0 + 100.0, IMG_H / 2.0, pose)
+    center_h = math.hypot(center.x - pose.x, center.y - pose.y)
+    off_h = math.hypot(off.x - pose.x, off.y - pose.y)
+    return [
+        _check("中心像素 DIST=水平距离 1.5m",
+               center.valid and abs(center.dist - 1.5) < 1e-6,
+               f"dist={center.dist:.6f}"),
+        _check("中心像素 DIST 与坐标水平距离一致",
+               abs(center.dist - center_h) < 1e-9,
+               f"dist={center.dist:.6f} hypot={center_h:.6f}"),
+        _check("偏心像素 DIST 与坐标水平距离一致",
+               off.valid and abs(off.dist - off_h) < 1e-9,
+               f"dist={off.dist:.6f} hypot={off_h:.6f}"),
+    ]
+
+
 def test_projected_pose_crs_rejected() -> list[bool]:
     """HDI 的 col12/13 是经纬度，投影 CRS 不能作为位姿坐标系。"""
     tmp = tempfile.mkdtemp(prefix="veh_crs_proj_")
@@ -276,6 +377,8 @@ def main() -> int:
     _utf8_stdout()
     results: list[bool] = []
     for fn in (test_default_4326, test_output_4547, test_invalid_pose,
+               test_truncated_hdi_row_rejected, test_empty_outputs_removed,
+               test_geo_distance_is_horizontal,
                test_projected_pose_crs_rejected, test_parse_crs_inputs):
         try:
             results += fn()

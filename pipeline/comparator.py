@@ -20,6 +20,7 @@ import numpy as np
 
 from . import coords
 from .crs_plan import make_plan
+from .exporter import clean_vector_outputs, clear_file_dataset
 
 GEOM_KIND = {"LineString": "lines", "MultiLineString": "lines",
              "Polygon": "areas", "MultiPolygon": "areas",
@@ -87,62 +88,72 @@ class Comparator:
     def _match_lines(self, new_g, ref_g):
         """以存量为中心的覆盖式匹配：
         - 存量线被新线（可多段）覆盖 ≥50% → 匹配
-        - 无覆盖且附近（3m 内）存在平行新线 → 改动
-        - 其余 → 缺失；未被任何存量覆盖的新线 → 新增"""
+        - 覆盖不足但附近 3m 内有新线 → 改动
+        - 其余 → 缺失；未被任何存量使用的新线 → 新增
+
+        覆盖长度必须用「线 ∩ 缓冲面」的长度，不能对缓冲面取 .length
+        （多边形的 .length 是周长，会把 40m 新线对 100m 存量线算成 82%）。
+        """
         from shapely.strtree import STRtree
         from shapely.ops import unary_union
         tree = STRtree(list(ref_g.geometry))
         ref_hits = [[] for _ in range(len(ref_g))]   # j -> [(score, i)]
-        assigned = [False] * len(new_g)
         for i, g in enumerate(new_g.geometry):
             for cj in tree.query(g.buffer(self.line_buf)):
                 j = int(cj)
                 h = ref_g.geometry.iloc[j]
-                inter = g.buffer(self.line_buf / 2).intersection(h.buffer(self.line_buf / 2)).length
+                # h 被 g 的缓冲带覆盖的长度（不是缓冲面周长）
+                inter = h.intersection(g.buffer(self.line_buf / 2)).length
                 denom = min(g.length, h.length)
                 if denom <= 0:
                     continue
                 score = inter / denom
                 if score < 0.3:
                     continue
+                # 局部方向必须大致平行，排除垂直交叉的道路
                 mid = g.interpolate(0.5, normalized=True)
                 d1 = h.project(mid)
                 pa = h.interpolate(max(0.0, d1 - 2.0))
                 pb = h.interpolate(min(h.length, d1 + 2.0))
-                v1 = np.array(mid.coords[0][:2]) - np.array(g.interpolate(0.2, normalized=True).coords[0][:2])
-                v2 = np.array(pb.coords[0][:2]) - np.array(pa.coords[0][:2])
+                v1 = (np.array(mid.coords[0][:2])
+                      - np.array(g.interpolate(0.2, normalized=True).coords[0][:2]))
+                v2 = (np.array(pb.coords[0][:2]) - np.array(pa.coords[0][:2]))
                 n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
                 if n1 > 1e-6 and n2 > 1e-6 and abs(np.dot(v1, v2)) / (n1 * n2) < 0.5:
                     continue
                 ref_hits[j].append((score, i))
-                assigned[i] = True
 
         pairs, modified, missing = [], [], []
+        used_new: set[int] = set()
         for j, hits in enumerate(ref_hits):
             h = ref_g.geometry.iloc[j]
             if not hits:
                 missing.append(j)
                 continue
             union_g = unary_union([new_g.geometry.iloc[i] for _, i in hits])
-            covered = h.buffer(0.3).intersection(union_g.buffer(0.3)).length / max(h.length, 1e-6)
+            covered = (h.intersection(union_g.buffer(0.3)).length
+                       / max(h.length, 1e-6))
             if covered >= 0.5:
                 best = max(hits)
                 pairs.append((best[1], j, round(covered, 2)))
+                used_new.update(i for _, i in hits)
             else:
-                # 低覆盖：找附近平行的新线 → 改动
+                # 低覆盖：找附近未被使用的新线 → 改动
                 near = None
                 for i, g in enumerate(new_g.geometry):
-                    if assigned[i]:
+                    if i in used_new:
                         continue
                     d = g.interpolate(0.5, normalized=True).distance(h)
                     if d < 3.0 and (near is None or d < near[0]):
                         near = (d, i)
                 if near is not None:
-                    assigned[near[1]] = True
-                    modified.append((near[1], j, f"偏移{near[0]:.1f}m"))
+                    used_new.add(near[1])
+                    why = (f"偏移{near[0]:.1f}m" if near[0] >= 0.5
+                           else "覆盖不足")
+                    modified.append((near[1], j, why))
                 else:
                     missing.append(j)
-        new_only = [i for i, a in enumerate(assigned) if not a]
+        new_only = [i for i in range(len(new_g)) if i not in used_new]
         return pairs, new_only, missing, modified
 
     def _match_areas(self, new_g, ref_g):
@@ -255,6 +266,7 @@ class Comparator:
         stock_layers = self._layers_to_working(stock_layers, plan.working_crs)
 
         results = {}
+        warnings: list[str] = []
         changes = {"new": [], "missing": [], "modified": []}  # (kind, layer, geom, note)
         n_kind = len([k for k in ("lines", "areas", "points")
                       if stock_layers[k] or new_layers[k]])
@@ -279,10 +291,15 @@ class Comparator:
             wlog(f"{kind}：新成果 {len(new_all)}，存量 {len(ref_all)}")
 
             if new_g is None:
-                # 新成果完全没有该类要素 → 无法判定，跳过（不算缺失）
-                wlog(f"  新成果未包含{kind}要素，跳过该类比对")
-                results[kind] = {"new": 0, "missing": 0, "modified": 0, "matched": 0,
-                                 "skipped": True}
+                # 新成果完全没有该类要素 → 无法判定，跳过（不算缺失）。
+                # 必须在日志/报告中明确说明，否则会被误读为“没有缺失”。
+                msg = (f"新成果未包含{kind}要素：存量 {len(ref_all)} 个"
+                       f"要素未计入缺失")
+                wlog("  注意：" + msg)
+                warnings.append(msg)
+                results[kind] = {"new": 0, "missing": 0, "modified": 0,
+                                 "matched": 0, "skipped": True,
+                                 "stock_count": len(ref_all)}
                 continue
             if ref_g is None:
                 for i, g in enumerate(new_all):
@@ -320,30 +337,47 @@ class Comparator:
             return gpd.GeoDataFrame(pd.DataFrame(rows), geometry="geometry",
                                     crs=plan.working_crs).to_crs(plan.target_crs)
 
-        try:
-            for key, rows in layer_rows.items():
-                _out_gdf(rows).to_file(str(gdb_path), layer=key, driver="OpenFileGDB")
-                written.append(key)
-            wlog(f"变化图层已写入：{gdb_path.name}（{len(written)} 层）")
-        except Exception as e:
-            wlog(f"变化 GDB 写出失败：{e}")
+        # 复用输出目录时先删除旧 GDB，避免上次的变化图层残留；
+        # 本次没有变化时也要删除，不能把旧成果当成本次结果。
+        gdb_error = clear_file_dataset(gdb_path)
+        if gdb_error:
+            warnings.append(gdb_error)
+            wlog(gdb_error)
+        elif layer_rows:
+            try:
+                for key, rows in layer_rows.items():
+                    _out_gdf(rows).to_file(str(gdb_path), layer=key,
+                                           driver="OpenFileGDB")
+                    written.append(key)
+                wlog(f"变化图层已写入：{gdb_path.name}（{len(written)} 层）")
+            except Exception as e:
+                msg = f"变化 GDB 写出失败：{e}"
+                warnings.append(msg)
+                wlog(msg)
+                # 不保留只有部分图层的成果，避免误读为完整结果
+                if gdb_path.exists():
+                    clear_file_dataset(gdb_path)
+                written.clear()
+        change_gdb = str(gdb_path) if written and gdb_path.exists() else ""
 
         # SHP 同步（与 GDB 使用同一目标 CRS）
         shp_dir = out / "shp"
         shp_files = []
+        if shp_dir.is_dir():
+            for msg in clean_vector_outputs(shp_dir, prefix="chg_"):
+                warnings.append(msg)
+                wlog(msg)
         try:
-            if shp_dir.exists():
-                for old in shp_dir.glob("*"):
-                    if old.suffix.lower() in (".shp", ".dbf", ".shx", ".prj", ".cpg"):
-                        old.unlink()
-            else:
-                shp_dir.mkdir(parents=True, exist_ok=True)
+            shp_dir.mkdir(parents=True, exist_ok=True)
             for key, rows in layer_rows.items():
                 p = str(shp_dir / f"{key}.shp")
                 _out_gdf(rows).to_file(p, encoding="utf-8")
                 shp_files.append(p)
         except Exception as e:
-            wlog(f"变化 SHP 写出失败：{e}")
+            msg = f"变化 SHP 写出失败：{e}"
+            warnings.append(msg)
+            wlog(msg)
+        shp_files = [p for p in shp_files if Path(p).is_file()]
 
         # 预览渲染（工作系几何；DOM 缺 CRS 时跳过，不阻断比对）
         preview = str(out / "比对预览.png")
@@ -368,8 +402,9 @@ class Comparator:
             "stock_layers_crs": {k: coords.crs_label(v)
                                  for k, v in stock_info.per_layer.items()},
             "by_kind": results,
+            "warnings": warnings,
             "totals": {k: sum(v[k] for v in results.values()) for k in ("new", "missing", "modified", "matched")},
-            "change_gdb": str(gdb_path), "change_layers": written,
+            "change_gdb": change_gdb, "change_layers": written,
             "shp": shp_files, "preview": preview,
             "seconds": round(time.time() - t0, 1),
         }
@@ -412,9 +447,8 @@ class Comparator:
             if src_origin != "file" or src_note:
                 wlog(f"比对底图坐标系：{coords.crs_label(src_crs)}"
                      + (f"（{src_note}）" if src_note else ""))
-            to_src = coords.build_transformer(working_crs, src_crs, field="dom_crs")
-            sb = coords.transform_bounds((minx, miny, maxx, maxy),
-                                         working_crs, src_crs)
+            to_src = plan.to_via_target(src_crs)
+            sb = coords.transform_bounds_with((minx, miny, maxx, maxy), to_src)
             win = from_bounds(*sb, dom.transform).round_offsets().round_lengths()
             # 变化点靠近影像边缘时，外扩后的窗口会越界；先裁剪到影像范围
             col0 = max(0, int(round(win.col_off)))
