@@ -81,7 +81,7 @@ python tools/make_single_exe.py              # → dist_single/AIVisionTool-Wind
 - IT 可用环境变量 `AVT_HOME` 把运行时目录重定向到共享盘/指定目录。
 - 排障日志：`%LOCALAPPDATA%\AIVisionTool\启动器日志.log`。
 
-> ⚠️ 交付 exe 约 700 MB 且会自解压到用户目录，未签名时可能触发 SmartScreen / 杀软
+> ⚠️ 交付 exe 约 725 MB 且会自解压到用户目录，未签名时可能触发 SmartScreen / 杀软
 > 拦截。正式分发建议对**最终 exe**做代码签名，并在交付说明中注明首次启动需 1.5 GB
 > 磁盘空间。CI 同时生成 `SHA256SUMS.txt` 供离线核验。
 
